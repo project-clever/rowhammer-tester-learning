@@ -170,3 +170,63 @@ def get_range_from_rows(wb, settings, row_nums):
         end = wb.mems.main_ram.base + wb.mems.main_ram.size
 
     return start - wb.mems.main_ram.base, end - start
+
+def generate_idle_payload(
+        *,
+        idle_time,
+        timings,
+        bankbits,
+        bank,
+        payload_mem_size,
+        verbose=False,
+        sys_clk_freq=None):
+
+    encoder = Encoder(bankbits=bankbits)
+    idle_clocks = int(idle_time * sys_clk_freq)
+
+    # Compute number of NOOP actions we need
+    max_noop_time = 2**29 - 1 # OpCode is 3 bits out of 32
+    noop_actions = idle_clocks // max_noop_time
+    last_noop_time = idle_clocks % max_noop_time
+
+    print(f'Waiting {idle_time} seconds ...')
+
+    payload = [encoder.I(OpCode.NOOP, timeslice=max(1, timings.tRFC - 2, timings.tREFI - 2))]
+
+    # Refresh the whole memory first
+    payload.append(encoder.I(OpCode.REF, timeslice=timings.tRFC))
+    payload.append(encoder.I(OpCode.LOOP, count=8191, jump=1))
+
+    # payload = [encoder.I(OpCode.REF, timeslice=1)]
+
+    for i in range(noop_actions):
+        payload.append(encoder.I(OpCode.NOOP, timeslice=max_noop_time))  
+
+    payload.append(encoder.I(OpCode.NOOP, timeslice=last_noop_time))
+
+    # Refresh the whole memory again
+    payload.append(encoder.I(OpCode.REF, timeslice=timings.tRFC))
+    payload.append(encoder.I(OpCode.LOOP, count=8191, jump=1))
+    
+    payload.append(encoder.I(OpCode.NOOP, timeslice=0))# STOP
+
+    if verbose:
+        expected_cycles = get_expected_execution_cycles(payload)
+        time = ''
+        if sys_clk_freq is not None:
+            time = ' = {:.3f} ms'.format(1 / sys_clk_freq * expected_cycles * 1e3)
+        print('  Expected execution time = {} cycles'.format(expected_cycles) + time)
+
+        for instruction in payload:
+            op, *args = map(lambda p: p[1], instruction._parts)
+            print(op, *map(hex, args), sep="\t")
+
+        if len(payload) > payload_mem_size // 4:
+            print(
+                'Memory required for payload executor instructions ({} bytes) exceeds available payload memory ({} bytes)'
+                .format(len(payload) * 4, payload_mem_size))
+            print('The payload memory size can be changed with \'--payload-size \' option.')
+            sys.exit(1)
+
+
+    return encoder(payload)

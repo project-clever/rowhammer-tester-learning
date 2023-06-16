@@ -7,6 +7,9 @@ from rowhammer_tester.scripts.playbook.payload_generators import PayloadGenerato
 from rowhammer_tester.scripts.playbook.payload_generators.row_list import RowListPayloadGenerator
 from rowhammer_tester.scripts.playbook.payload_generators.hammer_tolerance import HammerTolerancePayloadGenerator
 from rowhammer_tester.scripts.playbook.payload_generators.half_double_analysis import HalfDoubleAnalysisPayloadGenerator
+from rowhammer_tester.scripts.playbook.payload_generators.logged_row_list import LoggedRowListPayloadGenerator
+from rowhammer_tester.scripts.playbook.payload_generators.idle import IdlePayloadGenerator
+
 from rowhammer_tester.scripts.utils import (
     RemoteClient, setup_inverters, get_litedram_settings, hw_memset, hw_memtest, validate_keys,
     execute_payload, DRAMAddressConverter, get_generated_defs)
