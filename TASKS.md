@@ -23,3 +23,12 @@
 - [ ] Implement tool to measure retention and select adjacent rows with similar retention times
 - [ ] Control temperature and/or represent it in the model
 
+## Scholarship
+
+- [ ] Keep abreast of related  and fast moving literature
+    - [ ] Rowhammer itself
+    - [ ] Rowhammer defenses
+    - [ ] Active learning
+- [ ] Think about potential conferences for publication
+- [ ] Think about getting funding for longer range work in this direction
+
