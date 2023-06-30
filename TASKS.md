@@ -25,7 +25,7 @@
 
 ## Scholarship
 
-- [ ] Keep abreast of related  and fast moving literature
+- [ ] Keep abreast of related  and fast moving literature (maybe have file for collecting this?)
     - [ ] Rowhammer itself
     - [ ] Rowhammer defenses
     - [ ] Active learning
