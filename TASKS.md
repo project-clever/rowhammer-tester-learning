@@ -13,12 +13,13 @@
 - [ ] Implement tests for detecting TRR 
 - [ ] Implement tests for detecting ECC
 
-
-##   Misc
-
-- [ ] Implement tool to measure retention and select adjacent rows with similar retention times
-
 ##   FPGA
 
 - [ ] Implement basic TRR
     - Look at "rowhammer-tester/third_party/litedram/litedram/core/refresher.py" for a refresher module
+     
+##   Misc/extensions
+
+- [ ] Implement tool to measure retention and select adjacent rows with similar retention times
+- [ ] Control temperature and/or represent it in the model
+
