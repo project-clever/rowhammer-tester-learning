@@ -10,8 +10,10 @@
 ##  Rowhammer tester
 
 - [ ] Implement tests for triggering bit flips
-- [ ] Implement tests for detecting TRR 
+- [ ] Implement tests for detecting TRR
+    - See [[1]](#1) and [[2]](#2)
 - [ ] Implement tests for detecting ECC
+    - on-chip ECC can only be found in DDR5?
 
 ##   FPGA
 
@@ -32,3 +34,10 @@
 - [ ] Think about potential conferences for publication
 - [ ] Think about getting funding for longer range work in this direction
 
+## References
+
+<a id="1">[1] </a> 
+Pietro Frigo, Emanuele Vannacci, Hasan Hassan, Victor van der Veen, Onur Mutlu, Cristiano Giuffrida, Herbert Bos, and Kaveh Razavi. (2020). TRRespass: Exploiting the Many Sides of Target Row Refresh. [[pdf]](https://arxiv.org/abs/2004.01807)
+
+<a id="2">[2] </a>
+Hassan, H., Tugrul, Y., Kim, J., Veen, V., Razavi, K., & Mutlu, O. (2021). Uncovering In-DRAM RowHammer Protection Mechanisms:A New Methodology, Custom RowHammer Patterns, and Implications. In MICRO-54: 54th Annual IEEE/ACM International Symposium on Microarchitecture (pp. 1198–1213). Association for Computing Machinery. [[pdf]](https://people.inf.ethz.ch/omutlu/pub/U-TRR-uncovering-RowHammer-protection-mechanisms_micro21.pdf)
