@@ -15,6 +15,7 @@
 ## Rowhammer tester
 
 - [ ] Implement tests for triggering bit flips **(Kamil)**
+  - [ ] Initialise/check only relevant part of memory for errors
   - [ ] Investigate correct implementation of one-sided/two-sided hammering: do we need to hammer a "distant row" in one-sided so that the current row is closed?
 - [ ] Implement tests for detecting TRR
   - See [[1]](#1) and [[2]](#2)
