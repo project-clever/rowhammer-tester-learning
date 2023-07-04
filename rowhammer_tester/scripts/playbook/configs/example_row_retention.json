@@ -1,0 +1,11 @@
+{
+	"payload_generator" : "IdlePayloadGenerator",
+	"row_pattern" : 0,
+	"payload_generator_config" : {
+		"row_mapping" : "TrivialRowMapping",
+		"idle_time" : 2.5,
+		"max_iteration" : 1,
+		"verbose" : true,
+		"log_dir": "."
+	}
+}
