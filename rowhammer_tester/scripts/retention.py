@@ -3,14 +3,12 @@
 
 import argparse
 from collections import defaultdict
-from rowhammer_tester.scripts.playbook.playbook import (addresses_per_row, decode_errors) 
+from rowhammer_tester.scripts.playbook.playbook import decode_errors
 from rowhammer_tester.scripts.playbook.payload_generators import PayloadGenerator
 from rowhammer_tester.scripts.playbook.payload_generators.idle import IdlePayloadGenerator
 from rowhammer_tester.scripts.utils import (
     RemoteClient, setup_inverters, get_litedram_settings, hw_memset, hw_memtest, execute_payload, 
     DRAMAddressConverter, get_generated_defs)
-
-_addresses_per_row = {}
 
 
 def main():
