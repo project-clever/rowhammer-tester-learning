@@ -1,0 +1,6 @@
+[18/07/2023]
+Currently have the script retention.py which does a simple retention test on all the rows, it accepts arguments to alter the idle time and iterations.
+
+Next Step:
+ -  Test Specific Rows
+ -  Get N amount of rows with similar retention times
