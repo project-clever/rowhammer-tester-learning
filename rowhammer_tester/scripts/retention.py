@@ -31,7 +31,6 @@ def main():
             "row_generator": "RowSequenceGenerator",
             "idle_time" : args.idle,
             "max_iteration": args.iterations,
-            "verbose" : False,
         }
     }
 
