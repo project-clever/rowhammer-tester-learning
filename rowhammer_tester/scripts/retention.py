@@ -13,6 +13,7 @@ from rowhammer_tester.scripts.utils import (
 
 rows_retention_times = {}
 
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-id','--idle', type=float, default=2, help='Idle time to test specific retention time.')
@@ -40,7 +41,6 @@ def main():
         cursor = args.idle
         while cursor <= args.test:
             config["payload_generator_config"]["idle_time"] = cursor
-            config["payload_generator_config"]["max_iteration"] = 1
             fire(config, args)
             cursor += 0.1
 
@@ -54,9 +54,10 @@ def add_entry(row_dict, row_number, idle_time):
 
 def add_row_retention_time(row_errors, config):
     global rows_retention_times
-    print(rows_retention_times)
     for row in row_errors:
         add_entry(rows_retention_times, row, config["payload_generator_config"]["idle_time"])
+    print("Row Times:",rows_retention_times)
+
 
 def analyze_data(data, args, max_row):
     if args.trow is not None:
@@ -91,6 +92,7 @@ def fire(config, args):
             bank=bank,
             payload_mem_size=wb.mems.payload.size,
             sys_clk_freq=sys_clk_freq)
+
         execute_payload(wb, payload)
         offset, size = pg.get_memtest_range(wb, settings)
         errors = hw_memtest(wb, offset, size, [row_pattern])
