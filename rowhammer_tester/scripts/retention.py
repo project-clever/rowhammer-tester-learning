@@ -66,7 +66,8 @@ def analyze_data(data, args, max_row):
         else:
             print("The Row {0} has a retention time <= {1}".format(args.trow, args.idle))
     else:
-        selected_rows = [x for x in random.sample(range(0, max_row), args.nrows) if x not in data]
+        start_row = random.randint(0, max_row - args.nrows) 
+        selected_rows = [start_row + i for i in range(args.nrows) if start_row + i not in data]
         print("Rows Retention Times Greater Than {0}: {1}".format(args.idle, selected_rows))
 
 
