@@ -5,7 +5,7 @@ RUN apk --no-cache --update add npm build-base git bash
 RUN npm install -g pyright
 # RUN curl -o /usr/bin/wait-for-it https://raw.githubusercontent.com/vishnubob/wait-for-it/master/wait-for-it.sh && chmod +x /usr/bin/wait-for-it
 COPY . /code
-WORKDIR /code/rowhammer-tester/
+WORKDIR /code
 # RUN pyright --warnings
 # WORKDIR /code
 # RUN ant -f Mapper/build.xml dist
