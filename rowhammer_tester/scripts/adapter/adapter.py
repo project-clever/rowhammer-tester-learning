@@ -1,7 +1,10 @@
 import socket
 import socketserver
 import sys
-from typing import Optional
+import json
+from test_runner import run_test
+
+# from typing import Optional
 # import yaml
 
 import logging
@@ -25,9 +28,9 @@ class Adapter:
     #     self.mapper.reset()
     #     self.logger.info("RESET finished.")
 
-    def handleQuery(self, query: str) -> str:
-        answers = []
-        return " ".join(answers)
+    def handle_query(self, query: str) -> str:
+        actions = query.split()
+        return run_test(actions)
 
 
 class QueryRequestHandler(socketserver.StreamRequestHandler):
@@ -39,12 +42,19 @@ class QueryRequestHandler(socketserver.StreamRequestHandler):
     def handle(self):
         while True:
             query = self.rfile.readline().strip().decode("utf-8").rstrip("\n")
-            self.logger.info(query)
-        sys.exit(0)
+            if query != "":
+                self.logger.info("Received query: " + query)
+                if isinstance(self.server, AdapterServer):
+                    answer = self.server.adapter.handle_query(query)
+                    self.wfile.write(bytearray(json.dumps(answer),"utf-8"))
+            else:
+                return
+        # sys.exit(0)
 
 
 class AdapterServer(socketserver.TCPServer):
     def __init__(self, config, handler_class=QueryRequestHandler):
+        self.adapter = Adapter()
         self.logger = logging.getLogger("Server")
         self.logger.info("Initialising server...")
         socketserver.TCPServer.__init__(self, ("0.0.0.0", 4343), handler_class)
