@@ -9,8 +9,8 @@ WORKDIR /code
 # RUN pyright --warnings
 # WORKDIR /code
 # RUN ant -f Mapper/build.xml dist
-RUN make python-deps 
-# CMD ./adapter-init.sh
+RUN python3 -m venv venv && pip install -r requirements.txt
+CMD ./adapter-init.sh
 # CMD iptables -A OUTPUT -p tcp --tcp-flags RST RST -j DROP && sleep 30 && wait-for-it implementation:44344 -s -- wait-for-it database:5432 -s -- 
 # CMD python3 -u /code/adapter.py && export TARGET=zcu104 && export IP_ADDRESS=192.168.1.50
 # CMD ping 10.2.9.57

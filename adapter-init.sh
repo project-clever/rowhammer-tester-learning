@@ -10,7 +10,3 @@ litex_server --udp --udp-ip ${IP_ADDRESS} --udp-port ${UDP_PORT} &
 wait -n 
 
 exit $?
-
-
-
-
