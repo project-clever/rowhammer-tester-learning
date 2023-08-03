@@ -19,6 +19,6 @@ class RowSequenceGenerator(RowGenerator):
 
     def get_memory_range(self, wb, settings):
         row_list = []
-        for row in range(self.max_row):
+        for row in range(max(self.row_seq) + 2):
             row_list.append(self.row_mapping.logical_to_physical(row))
         return get_range_from_rows(wb, settings, row_list)
