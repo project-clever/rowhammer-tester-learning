@@ -42,11 +42,14 @@ class QueryRequestHandler(socketserver.StreamRequestHandler):
     def handle(self):
         while True:
             query = self.rfile.readline().strip().decode("utf-8").rstrip("\n")
+            # TODO: reset action to signal start of repeated tests, so that
+            #       some setting up can be done, eg opening the Wishbone connection
+            #       (or keep it open?)
             if query != "":
                 self.logger.info("Received query: " + query)
                 if isinstance(self.server, AdapterServer):
                     answer = self.server.adapter.handle_query(query)
-                    self.wfile.write(bytearray(json.dumps(answer),"utf-8"))
+                    self.wfile.write(bytearray(json.dumps(answer) + "\n", "utf-8"))
             else:
                 return
         # sys.exit(0)
@@ -82,7 +85,6 @@ class AdapterServer(socketserver.TCPServer):
 
 # config = loadConfig("/root/config.yaml")
 server = AdapterServer(QueryRequestHandler)
-
 
 if __name__ == "__main__":
     server.serve_forever()

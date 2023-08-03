@@ -361,7 +361,7 @@ def _progress(current, max, bar_w=40, last=False, name='Progress', opt=None):
 # offset - memory offset in bytes (modulo 16)
 # size - memory size in bytes (modulo 16)
 # patterns - pattern to fill memory
-def hw_memset(wb, offset, size, patterns, dbg=False):
+def hw_memset(wb, offset, size, patterns, dbg=False, print_progress=False):
     # we are limited to multiples of DMA data width
     settings = get_litedram_settings()
     dma_data_width = settings.phy.dfi_databits * settings.phy.nphases
@@ -400,15 +400,15 @@ def hw_memset(wb, offset, size, patterns, dbg=False):
     while True:
         if wb.regs.writer_ready.read():
             break
-        _progress(wb.regs.writer_done.read(), count)
+        if print_progress: _progress(wb.regs.writer_done.read(), count)
         time.sleep(10e-3)  # 10 ms
-    _progress(wb.regs.writer_done.read(), count, last=True)
+    if print_progress: _progress(wb.regs.writer_done.read(), count, last=True)
 
 
 BISTError = namedtuple('BISTError', ['offset', 'data', 'expected'])
 
 
-def hw_memtest(wb, offset, size, patterns, dbg=False):
+def hw_memtest(wb, offset, size, patterns, dbg=False, print_progress=False):
     # we are limited to multiples of DMA data width
     settings = get_litedram_settings()
     dma_data_width = settings.phy.dfi_databits * settings.phy.nphases
@@ -465,17 +465,20 @@ def hw_memtest(wb, offset, size, patterns, dbg=False):
                     expected=wb.regs.reader_error_expected.read(),
                 ))
             wb.regs.reader_error_continue.write(1)
-            progress()
+
+            if print_progress:
+                progress()
 
     # FIXME: Support progress
     while True:
         if wb.regs.reader_ready.read():
             break
         append_errors(wb, errors)
-        _progress(wb.regs.reader_done.read(), count)
-        progress()
+        if print_progress:
+            _progress(wb.regs.reader_done.read(), count)
+            progress()
         time.sleep(10e-3)  # !0 ms
-    progress(last=True)
+    if print_progress: progress(last=True)
 
     # Make sure we read all errors
     append_errors(wb, errors)

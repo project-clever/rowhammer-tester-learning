@@ -18,7 +18,7 @@ class HammerAction:
         self.bitflips = parsed_action.group(3)
 
 
-def run_test(actions):
+def run_test(actions, pattern='all_1'):
     rows = []
     flips = {}
 
@@ -30,6 +30,11 @@ def run_test(actions):
         flips[r] = 0
 
     return flips
+
+
+def simplify_test(actions):
+    # Put together actions involving same row
+    yield
 
 # if __name__ == "__main__":
 #     action = HammerAction('HAMMER(1,5,8)')
