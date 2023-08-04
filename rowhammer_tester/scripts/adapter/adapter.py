@@ -1,9 +1,10 @@
 import socket
 import socketserver
+import signal
+import re
 import sys
 import json
-from test_runner import run_test
-
+from hw_executor import HammerAction, HwExecutor
 # from typing import Optional
 # import yaml
 
@@ -12,11 +13,18 @@ import logging
 logging.basicConfig(level=logging.DEBUG, format="%(name)s: %(message)s")
 
 
+
+
 class Adapter:
     def __init__(self):
         self.localAddr: str = socket.gethostbyname(socket.gethostname())
         self.logger: logging.Logger = logging.getLogger("Adapter")
-        return
+        self.logger.info("Creating hardware executor...")
+        self.hw_exec = HwExecutor()
+        
+    
+    def stop(self):
+        self.hw_exec.stop()
 
     # def stop(self) -> None:
     #     self.tracker.stop()
@@ -29,8 +37,14 @@ class Adapter:
     #     self.logger.info("RESET finished.")
 
     def handle_query(self, query: str) -> str:
-        actions = query.split()
-        return run_test(actions)
+        test = query.split()
+        
+        actions=[]
+        for a_str in test:
+            hammer_action = HammerAction.from_string(a_str)
+            actions.append(hammer_action)
+
+        return self.hw_exec.execute(actions)
 
 
 class QueryRequestHandler(socketserver.StreamRequestHandler):
@@ -42,9 +56,6 @@ class QueryRequestHandler(socketserver.StreamRequestHandler):
     def handle(self):
         while True:
             query = self.rfile.readline().strip().decode("utf-8").rstrip("\n")
-            # TODO: reset action to signal start of repeated tests, so that
-            #       some setting up can be done, eg opening the Wishbone connection
-            #       (or keep it open?)
             if query != "":
                 self.logger.info("Received query: " + query)
                 if isinstance(self.server, AdapterServer):
@@ -62,6 +73,7 @@ class AdapterServer(socketserver.TCPServer):
         self.logger.info("Initialising server...")
         socketserver.TCPServer.__init__(self, ("0.0.0.0", 4343), handler_class)
         return
+    
 
     def handle_error(self, request, client_address):
         print("-" * 40, file=sys.stderr)
@@ -86,5 +98,11 @@ class AdapterServer(socketserver.TCPServer):
 # config = loadConfig("/root/config.yaml")
 server = AdapterServer(QueryRequestHandler)
 
+
 if __name__ == "__main__":
-    server.serve_forever()
+    try:
+        server.adapter.hw_exec.row_pattern='striped'
+        server.serve_forever()
+    except KeyboardInterrupt:
+        server.logger.info("Shutting down.")
+        server.adapter.hw_exec.stop()

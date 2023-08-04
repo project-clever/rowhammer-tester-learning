@@ -42,7 +42,7 @@ def discover_generated_files_dir():
 
 
 GENERATED_DIR = discover_generated_files_dir()
-print('Using generated target files in: {}'.format(os.path.relpath(GENERATED_DIR)))
+# print('Using generated target files in: {}'.format(os.path.relpath(GENERATED_DIR)))
 
 # Import sdram_init.py
 sys.path.append(GENERATED_DIR)
@@ -361,7 +361,7 @@ def _progress(current, max, bar_w=40, last=False, name='Progress', opt=None):
 # offset - memory offset in bytes (modulo 16)
 # size - memory size in bytes (modulo 16)
 # patterns - pattern to fill memory
-def hw_memset(wb, offset, size, patterns, dbg=False, print_progress=False):
+def hw_memset(wb, offset, size, patterns, dbg=False, print_progress=True):
     # we are limited to multiples of DMA data width
     settings = get_litedram_settings()
     dma_data_width = settings.phy.dfi_databits * settings.phy.nphases
@@ -408,7 +408,7 @@ def hw_memset(wb, offset, size, patterns, dbg=False, print_progress=False):
 BISTError = namedtuple('BISTError', ['offset', 'data', 'expected'])
 
 
-def hw_memtest(wb, offset, size, patterns, dbg=False, print_progress=False):
+def hw_memtest(wb, offset, size, patterns, dbg=False, print_progress=True):
     # we are limited to multiples of DMA data width
     settings = get_litedram_settings()
     dma_data_width = settings.phy.dfi_databits * settings.phy.nphases
@@ -517,8 +517,9 @@ def get_expected_execution_cycles(payload):
     return cycles
 
 
-def execute_payload(wb, payload):
-    print('\nTransferring the payload ...')
+def execute_payload(wb, payload, print_info=True):
+    if print_info:
+        print('\nTransferring the payload ...')
     memwrite(wb, payload, base=wb.mems.payload.base)
 
     def ready():
@@ -541,7 +542,8 @@ def execute_payload(wb, payload):
                 return True
         return False
 
-    print('\nExecuting ...')
+    if print_info:
+        print('\nExecuting ...')
     assert ready()
 
     start = time.time()
@@ -567,10 +569,11 @@ def execute_payload(wb, payload):
         time.sleep(0.001)
         first = False
 
-    finished = time.time()
-    print('\nTotal elapsed time: {:.3f} ms'.format((finished - start) * 1e3))
-    if start_transition is not None:
-        print('Registered execution time: {:.3f} ms\n'.format((finished - start_transition) * 1e3))
+    if print_info:
+        finished = time.time()
+        print('\nTotal elapsed time: {:.3f} ms'.format((finished - start) * 1e3))
+        if start_transition is not None:
+            print('Registered execution time: {:.3f} ms\n'.format((finished - start_transition) * 1e3))
 
 
 def validate_keys(config_dict, valid_keys_set):
