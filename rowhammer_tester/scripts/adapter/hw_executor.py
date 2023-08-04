@@ -143,4 +143,4 @@ class HwExecutor:
 if __name__ == "__main__":
     hw_exec = HwExecutor()
     action = HammerAction(0, 10000, 0)
-    print(hw_exec.execute(action))
+    print(hw_exec.execute([action]gi))
