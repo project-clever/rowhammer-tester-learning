@@ -4,18 +4,20 @@ action_pattern = re.compile(r'HAMMER[(]\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*[)]')
 
 
 class HammerAction:
-    def __init__(self, action: str):
-        self.bitflips = None
-        self.reads = None
-        self.row = None
-        self.parse_action(action)
+    def __init__(self, row, reads, bitflips):
+        self.row = row
+        self.reads = reads
+        self.biflips = bitflips
 
-    def parse_action(self, action: str):
+    @staticmethod
+    def from_string(action: str):
         parsed_action = re.search(action_pattern, action)
 
-        self.row = parsed_action.group(1)
-        self.reads = parsed_action.group(2)
-        self.bitflips = parsed_action.group(3)
+        row = parsed_action.group(1)
+        reads = parsed_action.group(2)
+        bitflips = parsed_action.group(3)
+
+        return HammerAction(row, reads, bitflips)
 
 
 def run_test(actions, pattern='all_1'):

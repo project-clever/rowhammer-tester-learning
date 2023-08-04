@@ -1,5 +1,7 @@
+import sys
 from collections import defaultdict
 
+from rowhammer_tester.scripts.adapter.test_runner import HammerAction
 from rowhammer_tester.scripts.playbook.lib import generate_payload_from_row_list, get_range_from_rows
 from rowhammer_tester.scripts.playbook.row_mappings import TrivialRowMapping
 from rowhammer_tester.scripts.utils import RemoteClient, get_litedram_settings, setup_inverters, DRAMAddressConverter, \
@@ -127,9 +129,9 @@ class HwExecutor:
             sys_clk_freq=self._sys_clk_freq)
 
         offset, size = self._get_memory_range(row_sequence)
-        hw_memset(self._wb, offset, size, [self._pattern_data])
+        hw_memset(self._wb, offset, size, [self._pattern_data], False)
         execute_payload(self._wb, payload)
-        errors = hw_memtest(self._wb, offset, size, [self._pattern_data])
+        errors = hw_memtest(self._wb, offset, size, [self._pattern_data], False)
         row_errors = self._decode_errors(errors)
         return self._process_errors(row_errors)
         # Check all the rows for now
@@ -140,3 +142,5 @@ class HwExecutor:
 
 if __name__ == "__main__":
     hw_exec = HwExecutor()
+    action = HammerAction(0, 10000, 0)
+    print(hw_exec.execute(action))
