@@ -38,12 +38,7 @@ class Adapter:
 
     def handle_query(self, query: str) -> str:
         test = query.split()
-        
-        actions=[]
-        for a_str in test:
-            hammer_action = HammerAction.from_string(a_str)
-            actions.append(hammer_action)
-
+        actions = [HammerAction.from_string(a_str) for a_str in test]
         return self.hw_exec.execute(actions)
 
 
