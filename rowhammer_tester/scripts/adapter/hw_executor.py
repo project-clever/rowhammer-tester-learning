@@ -1,23 +1,26 @@
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
+from rowhammer_tester.gateware.payload_executor import Decoder, Encoder, OpCode
 
-from rowhammer_tester.scripts.playbook.lib import generate_payload_from_row_list, get_range_from_rows
+from rowhammer_tester.scripts.adapter.utils import generate_payload, get_range_from_rows
 from rowhammer_tester.scripts.playbook.row_mappings import RowMapping,TrivialRowMapping
-from rowhammer_tester.scripts.utils import RemoteClient, get_litedram_settings, setup_inverters, DRAMAddressConverter, \
+from rowhammer_tester.scripts.utils import RemoteClient, get_expected_execution_cycles, get_litedram_settings, setup_inverters, DRAMAddressConverter, \
     get_generated_defs, hw_memset, execute_payload, hw_memtest
 
 import json
+import itertools
 import re
 from timeit import default_timer as timer
 
 action_pattern = re.compile(r'HAMMER[(]\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*[)]')
 
 
+# Models hammering action
 class HammerAction:
     def __init__(self, row, reads, bitflips):
         self.row = row
         self.reads = reads
-        self.biflips = bitflips
+        self.bitflips = bitflips
 
     @staticmethod
     def from_string(action: str):
@@ -28,33 +31,61 @@ class HammerAction:
         bitflips: int = int(parsed_action.group(3))
 
         return HammerAction(row, reads, bitflips)
+    
+    def __eq__(self, other):
+        return isinstance(other, HammerAction) and \
+        ( self.row == other.row and
+          self.reads == other.reads and
+          self.bitflips == other.bitflips )
 
+
+
+# Executes actions on FPGA
 class HwExecutor:
 
     def __init__(self):
+        # Keep track of row addresses and last actions/payload executed
+        # so that repeated tests are done efficiently
         self._addresses_cache = {}
+        self._last_actions = None
+        self._last_payload = None
+
+        # Open connection to FPGA
         self._wb = RemoteClient()
         self._wb.open()
 
+        # Get DRAM settings, address converter, and FPGA system clock
         self._settings = get_litedram_settings()
         self._converter = DRAMAddressConverter.load()
-        self._pattern_data = 0
         self._sys_clk_freq = float(get_generated_defs()['SYS_CLK_FREQ'])
 
+        # Intialise pattern data to all zeroes
+        self._pattern_data = 0
+
+
+        # Set up row pattern (see __seattr__ below)
         self.row_pattern = 'all_0'
+        # Neighbour distance
         self.row_check_distance = 1
+        # Bank to use
         self.bank = 0
-        # Set logical to physical row mapping; initially the identity
+        # Set logical to physical row mapping; default is the identity
         self.row_mapping = RowMapping.get_by_name('TrivialRowMapping')
 
+
+    # Counts "1" in bit string
     @staticmethod
     def bitcount(x):
         return bin(x).count('1')  # seems faster than operations on integers
 
+
+    # Returns number of bit flips: val is the read value and ref is the expected one
     @classmethod
     def bitflips(cls, val, ref):
         return cls.bitcount(val ^ ref)
 
+
+    # Returns addresses corresponding to given row
     def _addresses_per_row(self, bank, row):
         # Calculate the addresses lazily and cache them
         if row not in self._addresses_cache:
@@ -65,6 +96,8 @@ class HwExecutor:
             self._addresses_cache[row] = addresses
         return self._addresses_cache[row]
 
+
+    # Returns addresses corresponding to row_sequence plus neighbouring rows
     def _get_memory_range(self, row_sequence):
         # Convert from logical to physical row
         row_physical = [self.row_mapping.logical_to_physical(row) for row in row_sequence]
@@ -82,8 +115,11 @@ class HwExecutor:
             if row_below <= 2 ** self._settings.geom.rowbits - 1:
                 row_physical.append(row_below)
 
+        #  print(row_physical)
         return get_range_from_rows(self._wb, self._settings, row_physical)
+ 
 
+    # Converts memory addresses where bit flips occurred to bank, row and column
     def _decode_errors(self, errors):
         dma_data_width = self._settings.phy.dfi_databits * self._settings.phy.nphases
         dma_data_bytes = dma_data_width // 8
@@ -97,6 +133,9 @@ class HwExecutor:
 
         return dict(row_errors)
 
+
+    # Computes number of bit flips per row and returns dictionary of the form
+    #   row_flip[r] = <number of bit flips in row r>
     def _process_errors(self, row_errors):
         row_errors_logical = {}
         row_flip = {}
@@ -111,6 +150,8 @@ class HwExecutor:
 
         return row_flip
 
+
+    # Sets up FPGA to handle specific data pattern
     def __setattr__(self, key, value):
         if key == 'row_pattern':
             inversion_divisor = 0
@@ -132,24 +173,37 @@ class HwExecutor:
 
         super(HwExecutor, self).__setattr__(key, value)
 
-    def execute(self, actions):
-        row_sequence = [a.row for a in actions]
-        read_count = max([a.reads for a in actions])
 
-        payload = generate_payload_from_row_list(
-            read_count=read_count,
-            row_sequence=row_sequence,
-            timings=self._settings.timing,
-            bankbits=self._settings.geom.bankbits,
-            bank=self.bank,
-            payload_mem_size=self._wb.mems.payload.size,
-            refresh=False,
-            verbose=False,
-            sys_clk_freq=self._sys_clk_freq)
+    # Converts actions to payload and executes it
+    # Returns dictionary mapping rows to bit flips (keys are only rows where flips occurred)
+    def execute(self, actions):
+        # print('Executing', actions)
+        row_sequence = [a.row for a in actions]
+        read_counts = [a.reads for a in actions]
+
+        # Check if test is a repetition and, if so, use cached payload
+        payload = None
+        if actions == self._last_actions:
+            # print('Repetition!')
+            payload = self._last_payload
+        else:
+            payload = generate_payload(
+                row_sequence=row_sequence,
+                read_counts=read_counts,
+                timings=self._settings.timing,
+                bankbits=self._settings.geom.bankbits,
+                bank=self.bank,
+                payload_mem_size=self._wb.mems.payload.size,
+                verbose=False,
+                sys_clk_freq=self._sys_clk_freq)
+            self._last_actions = actions
+            self._last_payload = payload
+
 
         # print('Row sequence: ', row_sequence)
+        # row_sequence = [a.row for a in actions]
         offset, size = self._get_memory_range(row_sequence)
-        # print('Memory range: ', offset, size)
+
         hw_memset(self._wb, offset, size, [self._pattern_data], print_progress=False)
         execute_payload(self._wb, payload, False)
         errors = hw_memtest(self._wb, offset, size, [self._pattern_data], print_progress=False)
@@ -157,18 +211,29 @@ class HwExecutor:
         return self._process_errors(row_errors)
         # Check all the rows for now
 
+    # Closes connection to FPGA
     def stop(self):
         self._wb.close()
 
+    # Stops when object is destroyed
     def __del__(self):
         self.stop()
 
 
-# if __name__ == "__main__":
-#     hw_exec = HwExecutor()
-#     hw_exec.row_pattern = 'striped'
-#     actions = [ HammerAction(0, 100000, 0), HammerAction(2, 100000, 0)]
-#     start = timer()
-#     print(hw_exec.execute(actions))
-#     end = timer()
-#     print(end - start)
+if __name__ == "__main__":
+    hw_exec = HwExecutor()
+    hw_exec.row_pattern = 'striped'
+    actions = [HammerAction(0, 10000, 0), HammerAction(2, 10000, 1),
+               HammerAction(0,10000,1), HammerAction(2, 10000, 1),
+               HammerAction(0, 10000, 1), HammerAction(2, 10000, 1),
+               HammerAction(0, 10000, 1), HammerAction(2, 10000, 1)]
+    
+    actions1 = [HammerAction(0, 10000, 0), HammerAction(0, 10000, 1),
+               HammerAction(0,10000,1), HammerAction(0, 10000, 1),
+               HammerAction(2, 10000, 1), HammerAction(2, 10000, 1),
+               HammerAction(2, 10000, 1), HammerAction(2, 10000, 1)]
+
+    print(hw_exec.execute(actions))
+    print(hw_exec.execute(actions1))
+    # end = timer()
+    # print(end - start)

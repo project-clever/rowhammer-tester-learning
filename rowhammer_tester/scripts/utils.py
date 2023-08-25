@@ -16,7 +16,6 @@ from rowhammer_tester.gateware.payload_executor import Encoder, OpCode, Decoder
 
 # ###########################################################################
 
-
 def discover_generated_files_dir():
     # Search for defs.csv file that should have been generated in build directory.
     # Assume that we are building in repo root.
@@ -407,7 +406,6 @@ def hw_memset(wb, offset, size, patterns, dbg=False, print_progress=True):
 
 BISTError = namedtuple('BISTError', ['offset', 'data', 'expected'])
 
-
 def hw_memtest(wb, offset, size, patterns, dbg=False, print_progress=True):
     # we are limited to multiples of DMA data width
     settings = get_litedram_settings()
@@ -479,7 +477,7 @@ def hw_memtest(wb, offset, size, patterns, dbg=False, print_progress=True):
             progress()
         time.sleep(10e-3)  # !0 ms
     if print_progress: progress(last=True)
-
+    
     # Make sure we read all errors
     append_errors(wb, errors)
 

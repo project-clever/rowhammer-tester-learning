@@ -14,7 +14,7 @@ logging.basicConfig(level=logging.DEBUG, format="%(name)s: %(message)s")
 
 
 
-
+# Adapter which runs queries on the FPGA via HwExecutor
 class Adapter:
     def __init__(self):
         self.localAddr: str = socket.gethostbyname(socket.gethostname())
@@ -26,22 +26,13 @@ class Adapter:
     def stop(self):
         self.hw_exec.stop()
 
-    # def stop(self) -> None:
-    #     self.tracker.stop()
-    #     self.mapper.stop()
-
-    # def reset(self) -> None:
-    #     self.logger.info("Sending RESET...")
-    #     self.handleQuery("RST(?,?,?)")
-    #     self.mapper.reset()
-    #     self.logger.info("RESET finished.")
-
     def handle_query(self, query: str) -> str:
         test = query.split()
         actions = [HammerAction.from_string(a_str) for a_str in test]
         return self.hw_exec.execute(actions)
 
 
+# Handles queries by forwarding them to Adapter and sending response back to Learner
 class QueryRequestHandler(socketserver.StreamRequestHandler):
     def __init__(self, request, client_address, server):
         self.logger = logging.getLogger("Query Handler")
@@ -61,6 +52,8 @@ class QueryRequestHandler(socketserver.StreamRequestHandler):
         # sys.exit(0)
 
 
+
+# Server running on port 4343 handling communication with Learner
 class AdapterServer(socketserver.TCPServer):
     def __init__(self, config, handler_class=QueryRequestHandler):
         self.adapter = Adapter()
@@ -85,12 +78,15 @@ class AdapterServer(socketserver.TCPServer):
         sys.exit(1)
 
 
+# TODO: load config from file
+
 # def loadConfig(path):
 #     with open(path, "r") as stream:
 #         return yaml.safe_load(stream)["adapter"]
 
 
 # config = loadConfig("/root/config.yaml")
+
 server = AdapterServer(QueryRequestHandler)
 
 
