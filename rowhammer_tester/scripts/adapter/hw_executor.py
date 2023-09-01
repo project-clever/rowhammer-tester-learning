@@ -1,8 +1,9 @@
 import sys
 from collections import Counter, defaultdict
+import time
 from rowhammer_tester.gateware.payload_executor import Decoder, Encoder, OpCode
 
-from rowhammer_tester.scripts.adapter.utils import generate_payload, get_range_from_rows
+from rowhammer_tester.scripts.adapter.utils import generate_payload, generate_trr_test_payload, get_range_from_rows
 from rowhammer_tester.scripts.playbook.row_mappings import RowMapping,TrivialRowMapping
 from rowhammer_tester.scripts.utils import RemoteClient, get_expected_execution_cycles, get_litedram_settings, setup_inverters, DRAMAddressConverter, \
     get_generated_defs, hw_memset, execute_payload, hw_memtest
@@ -38,6 +39,8 @@ class HammerAction:
           self.reads == other.reads and
           self.bitflips == other.bitflips )
 
+    def __repr__(self):
+        return f'HAMMER({self.row}, {self.reads}, {self.bitflips})'
 
 
 # Executes actions on FPGA
@@ -174,9 +177,47 @@ class HwExecutor:
         super(HwExecutor, self).__setattr__(key, value)
 
 
+    def _process_payload(self, row_sequence, payload):
+        offset, size = self._get_memory_range(row_sequence)
+
+        hw_memset(self._wb, offset, size, [self._pattern_data], print_progress=False)
+        execute_payload(self._wb, payload, False)
+        errors = hw_memtest(self._wb, offset, size, [self._pattern_data], print_progress=False)
+        row_errors = self._decode_errors(errors)
+        return self._process_errors(row_errors)
+
+
+    def execute_trr_test(self, actions, rounds, refreshes):
+         # print('Executing', actions)
+        row_sequence = [a.row for a in actions]
+        read_counts = [a.reads for a in actions]
+
+        # Check if test is a repetition and, if so, use cached payload
+        payload = None
+        if actions == self._last_actions:
+            # print('Repetition!')
+            payload = self._last_payload
+        else:
+            payload = generate_trr_test_payload(
+                row_sequence=row_sequence,
+                read_counts=read_counts,
+                rounds=rounds,
+                refreshes=refreshes,
+                timings=self._settings.timing,
+                bankbits=self._settings.geom.bankbits,
+                bank=self.bank,
+                payload_mem_size=self._wb.mems.payload.size,
+                verbose=False,
+                sys_clk_freq=self._sys_clk_freq)
+            self._last_actions = actions
+            self._last_payload = payload
+
+        return self._process_payload(row_sequence, payload)       
+
+
     # Converts actions to payload and executes it
     # Returns dictionary mapping rows to bit flips (keys are only rows where flips occurred)
-    def execute(self, actions):
+    def execute_hammering_test(self, actions):
         # print('Executing', actions)
         row_sequence = [a.row for a in actions]
         read_counts = [a.reads for a in actions]
@@ -194,22 +235,16 @@ class HwExecutor:
                 bankbits=self._settings.geom.bankbits,
                 bank=self.bank,
                 payload_mem_size=self._wb.mems.payload.size,
-                verbose=False,
+                refresh=True,
+                verbose=True,
                 sys_clk_freq=self._sys_clk_freq)
             self._last_actions = actions
             self._last_payload = payload
 
-
+        return self._process_payload(row_sequence, payload)
         # print('Row sequence: ', row_sequence)
         # row_sequence = [a.row for a in actions]
-        offset, size = self._get_memory_range(row_sequence)
 
-        hw_memset(self._wb, offset, size, [self._pattern_data], print_progress=False)
-        execute_payload(self._wb, payload, False)
-        errors = hw_memtest(self._wb, offset, size, [self._pattern_data], print_progress=False)
-        row_errors = self._decode_errors(errors)
-        return self._process_errors(row_errors)
-        # Check all the rows for now
 
     # Closes connection to FPGA
     def stop(self):
@@ -220,20 +255,22 @@ class HwExecutor:
         self.stop()
 
 
+# How to detect presence of TRR?
+# - Compare results with and without refresh over several rounds: if we get
+#
+#       bit flips with refresh ~ bit flips without refresh
+#
+#   at least once, we know that TRR is not present
+# - Test with low number of accesses followed by refreshes, because refreshes have
+#   higher chances to correct bit flips
+
 if __name__ == "__main__":
     hw_exec = HwExecutor()
     hw_exec.row_pattern = 'striped'
-    actions = [HammerAction(0, 10000, 0), HammerAction(2, 10000, 1),
-               HammerAction(0,10000,1), HammerAction(2, 10000, 1),
-               HammerAction(0, 10000, 1), HammerAction(2, 10000, 1),
-               HammerAction(0, 10000, 1), HammerAction(2, 10000, 1)]
-    
-    actions1 = [HammerAction(0, 10000, 0), HammerAction(0, 10000, 1),
-               HammerAction(0,10000,1), HammerAction(0, 10000, 1),
-               HammerAction(2, 10000, 1), HammerAction(2, 10000, 1),
-               HammerAction(2, 10000, 1), HammerAction(2, 10000, 1)]
+    actions =  [HammerAction(i, 50000, 0) for i in range(0,1,2)]
 
-    print(hw_exec.execute(actions))
-    print(hw_exec.execute(actions1))
-    # end = timer()
-    # print(end - start)
+    print(actions)
+
+    for i in range(10): 
+        print(hw_exec.execute_trr_test(actions, rounds=4,refreshes=1))
+        time.sleep(1)

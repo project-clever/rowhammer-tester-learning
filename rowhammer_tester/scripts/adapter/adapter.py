@@ -29,7 +29,7 @@ class Adapter:
     def handle_query(self, query: str) -> str:
         test = query.split()
         actions = [HammerAction.from_string(a_str) for a_str in test]
-        return self.hw_exec.execute(actions)
+        return self.hw_exec.execute_hammering_test(actions)
 
 
 # Handles queries by forwarding them to Adapter and sending response back to Learner
