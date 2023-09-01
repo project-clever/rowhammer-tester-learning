@@ -1,5 +1,6 @@
 import sys
 from collections import Counter, defaultdict
+import time
 from rowhammer_tester.gateware.payload_executor import Decoder, Encoder, OpCode
 
 from rowhammer_tester.scripts.adapter.utils import generate_payload, generate_trr_test_payload, get_range_from_rows
@@ -175,6 +176,7 @@ class HwExecutor:
 
         super(HwExecutor, self).__setattr__(key, value)
 
+
     def _process_payload(self, row_sequence, payload):
         offset, size = self._get_memory_range(row_sequence)
 
@@ -183,6 +185,7 @@ class HwExecutor:
         errors = hw_memtest(self._wb, offset, size, [self._pattern_data], print_progress=False)
         row_errors = self._decode_errors(errors)
         return self._process_errors(row_errors)
+
 
     def execute_trr_test(self, actions, rounds, refreshes):
          # print('Executing', actions)
@@ -252,24 +255,22 @@ class HwExecutor:
         self.stop()
 
 
+# How to detect presence of TRR?
+# - Compare results with and without refresh over several rounds: if we get
+#
+#       bit flips with refresh ~ bit flips without refresh
+#
+#   at least once, we know that TRR is not present
+# - Test with low number of accesses followed by refreshes, because refreshes have
+#   higher chances to correct bit flips
+
 if __name__ == "__main__":
     hw_exec = HwExecutor()
     hw_exec.row_pattern = 'striped'
-    actions =  [HammerAction(i, 5000, 0) for i in range(0,8,2)]
+    actions =  [HammerAction(i, 50000, 0) for i in range(0,1,2)]
 
-    # actions = [HammerAction(0, 10000, 0), HammerAction(2, 10000, 1),
-    #            HammerAction(0,10000,1), HammerAction(2, 10000, 1),
-    #            HammerAction(0, 10000, 1), HammerAction(2, 10000, 1),
-    #            HammerAction(0, 10000, 1), HammerAction(2, 10000, 1)]
-    
-    # actions1 = [HammerAction(0, 10000, 0), HammerAction(0, 10000, 1),
-    #            HammerAction(0,10000,1), HammerAction(0, 10000, 1),
-    #            HammerAction(2, 10000, 1), HammerAction(2, 10000, 1),
-    #            HammerAction(2, 10000, 1), HammerAction(2, 10000, 1)]
-
-
-    print(hw_exec.execute_trr_test(actions, rounds=10,refreshes=1))
     print(actions)
-    # print(hw_exec.execute(actions1))
-    # end = timer()
-    # print(end - start)
+
+    for i in range(10): 
+        print(hw_exec.execute_trr_test(actions, rounds=4,refreshes=1))
+        time.sleep(1)

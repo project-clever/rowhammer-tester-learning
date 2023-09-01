@@ -241,7 +241,13 @@ def encode_long_loop(*, unrolled, rolled, **kwargs):
 #     return encoder(payload)
 
 
+# 0: ACT row1
+# 1: PRE row1
+# 2: ACT row2
+# 3: PRE row2
+# 4: LOOP 50000 5
 
+# 32 => 2 11 19 
 
 # Encodes hammering each row in a sequence for a fixed number of times
 def encode_one_readcount(
@@ -315,6 +321,10 @@ def generate_payload(
     # As we include REF as first instruction we actually wait tREFI here
     payload = [encoder.I(OpCode.NOOP, timeslice=max(1, trfc - 2, trefi - 2))]
 
+    # [1, 3, 5] [100, 200, 300]
+    # [1, 3, 5] => 100
+    # [3, 5] => 100
+    # [5] => 100
 
     # Attaches read counts to corresponding rows
     rows_with_counts = list(zip(row_sequence, read_counts))
@@ -364,6 +374,10 @@ def generate_payload(
 
     # Encode payload
     return encoder(payload)
+
+# 0, 2, 3 => 50k => refresh
+# 1. 5k => refresh
+# 2. 5k => refresh
 
 
 def generate_trr_test_payload(
