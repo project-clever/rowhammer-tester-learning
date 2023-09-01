@@ -59,17 +59,29 @@ def check_payload(payload, payload_mem_size):
 
 
 # Encode a single loop by repeating accesses to rows in an interleaving fashion
-def encode_one_loop(*, unrolled, rolled, row_sequence, timings, encoder, bank, payload):
+def encode_one_loop(*, unrolled, rolled, row_sequence, timings, encoder, bank, payload, refresh=False):
     tras = timings.tRAS
     trp = timings.tRP
     trefi = timings.tREFI
     trfc = timings.tRFC
 
+    local_refreshes = 0
 
-    # payload.append(encoder.I(OpCode.NOOP, timeslice=trfc))
+    if refresh:
+        payload.append(encoder.I(OpCode.REF, timeslice=trfc))
+        local_refreshes = 1
+        accum = trfc + 1
 
     for idx in range(unrolled):
         for row in row_sequence:
+            if refresh:
+                if accum + tras + trp > trefi:
+                    payload.append(encoder.I(OpCode.REF, timeslice=trfc))
+                    # Invariant: time between the beginning of two refreshes
+                    # is is less than tREFI.
+                    accum = trfc
+                    local_refreshes += 1
+                accum += tras + trp
             payload.extend(
                 [
                     encoder.I(
@@ -77,7 +89,7 @@ def encode_one_loop(*, unrolled, rolled, row_sequence, timings, encoder, bank, p
                     encoder.I(OpCode.PRE, timeslice=trp,
                               address=encoder.address(col=1 << 10)),  # all
                 ])
-    jump_target = 2 * unrolled * len(row_sequence) 
+    jump_target = 2 * unrolled * len(row_sequence) + local_refreshes
     # + 1
     assert jump_target < 2 ** Decoder.LOOP_JUMP
     payload.append(encoder.I(OpCode.LOOP, count=rolled, jump=jump_target))
@@ -181,96 +193,6 @@ def encode_long_loop(*, unrolled, rolled, **kwargs):
 #     return payload
 
 
-
-
-# def generate_trr_test_payload_from_row_list(
-#         *,
-#         read_count,
-#         row_sequence,
-#         timings,
-#         bankbits,
-#         bank,
-#         payload_mem_size,
-#         iterations,
-#         refresh=False,
-#         verbose=False,
-#         sys_clk_freq=None):
-#     encoder = Encoder(bankbits=bankbits)
-
-#     tras = timings.tRAS
-#     trp = timings.tRP
-#     trefi = timings.tREFI
-#     trfc = timings.tRFC
-
-#     if verbose:
-#         print('Generating payload:')
-#         for t in ['tRAS', 'tRP', 'tREFI', 'tRFC']:
-#             print('  {} = {}'.format(t, getattr(timings, t)))
-
-#     acts_per_interval = (trefi - trfc) // (trp + tras)
-#     max_acts_in_loop = (2 ** Decoder.LOOP_JUMP - 1) // 2
-#     repeatable_unit = min(
-#         least_common_multiple(acts_per_interval, len(row_sequence)), max_acts_in_loop)
-#     assert repeatable_unit >= len(row_sequence)
-#     repetitions = repeatable_unit // len(row_sequence)
-
-#     if verbose:
-#         print("  Repeatable unit: {}".format(repeatable_unit))
-#         print("  Repetitions: {}".format(repetitions))
-
-#     read_count_quotient = read_count // repetitions
-#     read_count_remainder = read_count % repetitions
-
-#     refresh_op = OpCode.REF if refresh else OpCode.NOOP
-
-#     # First instruction after mode transition should be a NOOP that waits until tRFC is satisfied
-#     # As we include REF as first instruction we actually wait tREFI here
-#     first_instruction = [encoder.I(OpCode.NOOP, timeslice=max(1, trfc - 2, trefi - 2))]
-
-#     payload = []
-    # encode_long_loop(
-    #     unrolled=repetitions,
-    #     rolled=read_count_quotient,
-    #     row_sequence=row_sequence,
-    #     timings=timings,
-    #     encoder=encoder,
-    #     bank=bank,
-    #     refresh_op=OpCode.NOOP,
-    #     payload=payload)
-    # encode_long_loop(
-    #     unrolled=1,
-    #     rolled=read_count_remainder,
-    #     row_sequence=row_sequence,
-    #     timings=timings,
-    #     encoder=encoder,
-    #     bank=bank,
-    #     refresh_op=OpCode.NOOP,
-    #     payload=payload)
-
-#     # Append one refresh if enabled
-#     payload.append(encoder.I(refresh_op, timeslice=trfc))
-
-#     # Repeat sequence "iterations" times
-#     payload = first_instruction + (payload * iterations)
-
-#     # MC refresh timer is reset on mode transition, so issue REF now, this way it will be in sync with MC
-#     # payload.append(encoder.I(refresh_op, timeslice=1))
-#     payload.append(encoder.I(OpCode.NOOP, timeslice=0))  # STOP
-
-#     if verbose:
-#         print_payload_info(payload,
-#                            refresh,
-#                            iterations if refresh else 0,
-#                            payload_mem_size,
-#                            read_count,
-#                            row_sequence,
-#                            sys_clk_freq)
-
-#     check_payload(payload, payload_mem_size)
-
-#     return encoder(payload)
-
-
 # def generate_idle_payload(
 #         *,
 #         idle_time,
@@ -319,6 +241,8 @@ def encode_long_loop(*, unrolled, rolled, **kwargs):
 #     return encoder(payload)
 
 
+
+
 # Encodes hammering each row in a sequence for a fixed number of times
 def encode_one_readcount(
         *,
@@ -327,7 +251,8 @@ def encode_one_readcount(
         timings,
         encoder,
         bank,
-        payload):
+        payload,
+        refresh=False):
 
     tras = timings.tRAS
     trp = timings.tRP
@@ -352,7 +277,8 @@ def encode_one_readcount(
         timings=timings,
         encoder=encoder,
         bank=bank,
-        payload=payload)
+        payload=payload,
+        refresh=refresh)
     encode_long_loop(
         unrolled=1,
         rolled=read_count_remainder,
@@ -360,7 +286,8 @@ def encode_one_readcount(
         timings=timings,
         encoder=encoder,
         bank=bank,
-        payload=payload)
+        payload=payload,
+        refresh=refresh)
 
     return payload
 
@@ -376,6 +303,7 @@ def generate_payload(
         bankbits,
         bank,
         payload_mem_size,
+        refresh=False,
         verbose=False,
         sys_clk_freq=None):
     encoder = Encoder(bankbits=bankbits)
@@ -413,15 +341,97 @@ def generate_payload(
                             timings=timings,
                             encoder=encoder,
                             bank=bank,
-                            payload=payload)
+                            payload=payload,
+                            refresh=refresh)
         
 
         # Update rows_with_counts so that it now contains read counts
-        # to be done. Rows whose read count has reached zero are removed
+        # that are left to do. Rows whose read count has reached zero are removed
         rows_with_counts = [(row, count - read_count) for row, count in rows_with_counts if count > read_count]
 
         # print(f'Rows and count: {rows_with_counts}')
 
+
+    # MC refresh timer is reset on mode transition, so issue REF now, this way it will be in sync with MC
+    payload.append(encoder.I(OpCode.NOOP, timeslice=1))
+    payload.append(encoder.I(OpCode.NOOP, timeslice=0))  # STOP
+
+    if verbose:
+        print_payload_info(payload, payload_mem_size, read_count, row_sequence, sys_clk_freq)
+
+    # Check that payload fits into payload memory
+    check_payload(payload, payload_mem_size)
+
+    # Encode payload
+    return encoder(payload)
+
+
+def generate_trr_test_payload(
+        *,
+        row_sequence,
+        read_counts,
+        rounds=1,
+        refreshes=1,
+        timings,
+        bankbits,
+        bank,
+        payload_mem_size,
+        verbose=False,
+        sys_clk_freq=None):
+    encoder = Encoder(bankbits=bankbits)
+
+    trefi = timings.tREFI
+    trfc = timings.tRFC
+
+    # First instruction after mode transition should be a NOOP that waits until tRFC is satisfied
+    # As we include REF as first instruction we actually wait tREFI here
+    payload = [encoder.I(OpCode.NOOP, timeslice=max(1, trfc - 2, trefi - 2))]
+
+    one_round = []
+    ###### ENCODE ONE ROUND ######
+
+    # Attaches read counts to corresponding rows
+    rows_with_counts = list(zip(row_sequence, read_counts))
+    read_count = min(read_counts)
+    first_count = True
+
+    # Go through read counts in ascending order and generate payload for that
+    # specific read count. Subtract from rows_with_counts to keep track
+    # of remaining accesses, removing rows for which read counts have reached zero
+    while len(rows_with_counts) > 0:
+        if first_count:
+            first_count = False
+        else:
+            # Generate next sequence to hammer and corresponding read count
+            row_sequence = [row for row, _ in rows_with_counts]
+            read_count = min([count for _ , count in rows_with_counts])
+
+        # print(f'Seq: {row_sequence}')
+        # print(f'Count: {read_count}')
+
+        # Encode hammering "row_sequence" for "read_count" times
+        encode_one_readcount(row_sequence=row_sequence,
+                            read_count=read_count,
+                            timings=timings,
+                            encoder=encoder,
+                            bank=bank,
+                            payload=one_round,
+                            refresh=False)
+        
+
+        # Update rows_with_counts so that it now contains read counts
+        # that are left to do. Rows whose read count has reached zero are removed
+        rows_with_counts = [(row, count - read_count) for row, count in rows_with_counts if count > read_count]
+
+        # print(f'Rows and count: {rows_with_counts}')
+
+    # Append refreshes at the end of round
+    one_round.extend([encoder.I(OpCode.REF, timeslice=trfc)] * refreshes)
+
+    # Generate payload
+    payload = [encoder.I(OpCode.NOOP, timeslice=max(1, trfc - 2, trefi - 2))]
+
+    payload.extend(one_round * rounds)
 
     # MC refresh timer is reset on mode transition, so issue REF now, this way it will be in sync with MC
     payload.append(encoder.I(OpCode.NOOP, timeslice=1))
@@ -477,8 +487,10 @@ if __name__ == '__main__':
     # payload = test_payload_generation(wb, settings, encoder, payload, 0, 0, sys_clk_freq)
     # # test_payload_generation(settings, encoder, payload, 0, 3)
     # payload = encoder(payload)
-    payload = generate_payload(row_sequence=[0, 0],
-                               read_counts=[5000, 8000],
+    payload = generate_trr_test_payload(row_sequence=[0, 2, 5],
+                               read_counts=[50000,50000,50000],
+                               rounds=2,
+                               refreshes=1,
                                 timings=settings.timing, 
                                 bankbits=settings.geom.bankbits, 
                                 bank=0, 
