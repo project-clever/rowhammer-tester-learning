@@ -1,8 +1,7 @@
 from math import ceil
 from rowhammer_tester.gateware.payload_executor import Encoder, OpCode, Decoder
-from rowhammer_tester.scripts.utils import RemoteClient, get_expected_execution_cycles, get_litedram_settings, setup_inverters, DRAMAddressConverter, \
+from rowhammer_tester.scripts.utils import RemoteClient, get_expected_execution_cycles, get_litedram_settings, DRAMAddressConverter, \
     get_generated_defs, hw_memset, execute_payload, hw_memtest
-import sys
 
 
 # Returns range of memory addresses corresponding to the list of rows "row_nums"
@@ -30,21 +29,23 @@ def least_common_multiple(x, y):
 # Prints out payload info such as size, expected exec time and list of instructions
 def print_payload_info(payload,
                        payload_mem_size,
-                       read_count,
-                       row_sequence,
+                    #    read_count,
+                    #    row_sequence,
+                       refreshes,
                        sys_clk_freq):
     expected_cycles = get_expected_execution_cycles(payload)
     print(
         '  Payload size = {:5.2f}KB / {:5.2f}KB'.format(
             4 * len(payload) / 2 ** 10, payload_mem_size / 2 ** 10))
-    count = '{:.3f}M'.format(read_count /
-                             1e6) if read_count > 1e6 else '{:.3f}K'.format(read_count / 1e3)
-    print('  Payload per-row toggle count = {}  x{} rows'.format(count, len(row_sequence)))
+    # count = '{:.3f}M'.format(read_count /
+    #                          1e6) if read_count > 1e6 else '{:.3f}K'.format(read_count / 1e3)
+    # print('  Payload per-row toggle count = {}  x{} rows'.format(count, len(row_sequence)))
     time = ''
     if sys_clk_freq is not None:
         time = ' = {:.3f} ms'.format(1 / sys_clk_freq * expected_cycles * 1e3)
     print('  Expected execution time = {} cycles'.format(expected_cycles) + time)
-
+    print(f'  Refreshes: {refreshes}')
+    
     for instruction in payload:
         op, *args = map(lambda p: p[1], instruction._parts)
         print(op, *map(hex, args), sep="\t")
@@ -87,12 +88,14 @@ def encode_one_loop(*, unrolled, rolled, row_sequence, timings, encoder, bank, p
                     encoder.I(
                         OpCode.ACT, timeslice=tras, address=encoder.address(bank=bank, row=row)),
                     encoder.I(OpCode.PRE, timeslice=trp,
-                              address=encoder.address(col=1 << 10)),  # all
+                             address=encoder.address(col=1 << 10)),  # all
                 ])
     jump_target = 2 * unrolled * len(row_sequence) + local_refreshes
     # + 1
     assert jump_target < 2 ** Decoder.LOOP_JUMP
     payload.append(encoder.I(OpCode.LOOP, count=rolled, jump=jump_target))
+
+    return local_refreshes * (rolled + 1)
 
 
 # Split a long loop into shorter ones according to max jump length of LOOP opcode
@@ -100,6 +103,7 @@ def encode_long_loop(*, unrolled, rolled, **kwargs):
     # fill payload so that we have >= desired read_count
     count_max = 2 ** Decoder.LOOP_COUNT - 1
     n_loops = ceil(rolled / (count_max + 1))
+    refreshes = 0
 
     for outer_idx in range(n_loops):
         if outer_idx == 0:
@@ -113,132 +117,9 @@ def encode_long_loop(*, unrolled, rolled, **kwargs):
         else:
             loop_count = count_max
 
-        encode_one_loop(unrolled=unrolled, rolled=loop_count, **kwargs)
+        refreshes += encode_one_loop(unrolled=unrolled, rolled=loop_count, **kwargs)
 
-
-
-
-# def generate_payload(
-#         *,
-#         hammer_actions,
-#         timings,
-#         bankbits,
-#         bank,
-#         payload_mem_size,
-#         sys_clk_freq=None):        
-#     encoder = Encoder(bankbits=bankbits)
-
-#     trfc = timings.tRFC
-
-#     payload = [encoder.I(OpCode.NOOP, timeslice=trfc)]
-
-#     for row, read_count in hammer_actions:
-#         add_opcodes_from_row_access(payload=payload, 
-#                                     row=row, 
-#                                     read_count=read_count, 
-#                                     timings=timings, 
-#                                     encoder=encoder,
-#                                     bankbits=bankbits, 
-#                                     bank=bank, 
-#                                     payload_mem_size=payload_mem_size, 
-#                                     sys_clk_freq=sys_clk_freq)
-                                    
-
-#     payload.append(encoder.I(OpCode.NOOP, timeslice=0))  # STOP    
-
-#     print_payload_info(payload, payload_mem_size, 100, [row for (row,_) in hammer_actions], sys_clk_freq)
-
-#     return encoder(payload)
-
-# def add_opcodes_from_row_access(
-#         *,
-#         payload,
-#         row,
-#         read_count,
-#         timings,
-#         encoder,
-#         bankbits,
-#         bank,
-#         payload_mem_size,
-#         sys_clk_freq=None):
-#     tras = timings.tRAS
-#     trp = timings.tRP
-#     trefi = timings.tREFI
-#     trfc = timings.tRFC
-
-#     acts_per_interval = (trefi - trfc) // (trp + tras)
-#     max_acts_in_loop = (2 ** Decoder.LOOP_JUMP - 1) // 2
-#     repeatable_unit = min(acts_per_interval, max_acts_in_loop)
-
-#     read_count_quotient = read_count // repeatable_unit
-#     read_count_remainder = read_count % repeatable_unit
-
-#     encode_long_loop(
-#         unrolled=repeatable_unit,
-#         rolled=read_count_quotient,
-#         row=row,
-#         timings=timings,
-#         encoder=encoder,
-#         bank=bank,
-#         payload=payload)
-#     encode_long_loop(
-#         unrolled=1,
-#         rolled=read_count_remainder,
-#         row=row,
-#         timings=timings,
-#         encoder=encoder,
-#         bank=bank,
-#         payload=payload)
-
-#     return payload
-
-
-# def generate_idle_payload(
-#         *,
-#         idle_time,
-#         timings,
-#         bankbits,
-#         bank,
-#         payload_mem_size,
-#         verbose=False,
-#         sys_clk_freq=None):
-#     encoder = Encoder(bankbits=bankbits)
-#     idle_clocks = int(idle_time * sys_clk_freq)
-
-#     # Compute number of NOOP actions we need
-#     max_noop_time = 2 ** 29 - 1  # OpCode is 3 bits out of 32
-#     noop_actions = idle_clocks // max_noop_time
-#     last_noop_time = idle_clocks % max_noop_time
-
-#     print(f'Waiting {idle_time} seconds ...')
-
-#     payload = [encoder.I(OpCode.NOOP, timeslice=max(1, timings.tRFC - 2, timings.tREFI - 2))]
-
-#     # Refresh the whole memory first
-#     payload.append(encoder.I(OpCode.REF, timeslice=timings.tRFC))
-#     payload.append(encoder.I(OpCode.LOOP, count=8191, jump=1))
-
-#     # payload = [encoder.I(OpCode.REF, timeslice=1)]
-
-#     for i in range(noop_actions):
-#         payload.append(encoder.I(OpCode.NOOP, timeslice=max_noop_time))
-
-#     payload.append(encoder.I(OpCode.NOOP, timeslice=last_noop_time))
-
-#     # Refresh the whole memory again
-#     payload.append(encoder.I(OpCode.REF, timeslice=timings.tRFC))
-#     payload.append(encoder.I(OpCode.LOOP, count=8191, jump=1))
-
-#     payload.append(encoder.I(OpCode.NOOP, timeslice=0))  # STOP
-
-#     if verbose:
-#         expected_cycles = get_expected_execution_cycles(payload)
-#         time = ''
-#         if sys_clk_freq is not None:
-#             time = ' = {:.3f} ms'.format(1 / sys_clk_freq * expected_cycles * 1e3)
-#         print('  Expected execution time = {} cycles'.format(expected_cycles) + time)
-
-#     return encoder(payload)
+    return refreshes
 
 
 # 0: ACT row1
@@ -274,9 +155,8 @@ def encode_one_readcount(
 
     read_count_quotient = read_count // repetitions
     read_count_remainder = read_count % repetitions
-
-
-    encode_long_loop(
+    
+    refreshes = encode_long_loop(
         unrolled=repetitions,
         rolled=read_count_quotient,
         row_sequence=row_sequence,
@@ -285,7 +165,7 @@ def encode_one_readcount(
         bank=bank,
         payload=payload,
         refresh=refresh)
-    encode_long_loop(
+    refreshes += encode_long_loop(
         unrolled=1,
         rolled=read_count_remainder,
         row_sequence=row_sequence,
@@ -295,16 +175,99 @@ def encode_one_readcount(
         payload=payload,
         refresh=refresh)
 
-    return payload
+    return refreshes
 
 
-# Generates payload which hammers each row in row_sequence = [R1, ..., Rn] a number
+# Generates low-level code hammering each row in row_sequence = [R1, ..., Rn] a number
 # of times given by read_counts = [C1, ..., Cn]. Namely: Rk is hammered Ck times.
-# This is done in an interleaving fashion.
+# The 'mode' argument determines how hammering is implemented:
+#   - interleaving => rows are hammered in a round-robin fashion
+#   - sequential   => rows are hammered exactly as indicated, i.e., R1 for C1 times, then 
+#                     R2 for C2 times and so on.
+def encode_hammering(
+        *,
+        row_sequence,
+        read_counts,
+        mode='sequential',
+        payload,
+        timings,
+        bankbits,
+        bank,
+        refresh=False):
+    encoder = Encoder(bankbits=bankbits)
+
+    refreshes = 0
+
+    # Attaches read counts to corresponding rows
+    rows_with_counts = list(zip(row_sequence, read_counts))
+
+    match mode:
+        case 'interleaving':
+
+            read_count = min(read_counts)
+            first_count = True
+            # Go through read counts in ascending order and generate payload for that
+            # specific read count. Subtract from rows_with_counts to keep track
+            # of remaining accesses, removing rows for which read counts have reached zero.
+            # Example for row_sequence = [1, 3, 5], read_counts = [100, 200, 300]:
+            #   Iteration 1. [1, 3, 5] x 100 times
+            #   Iteration 2. [3, 5] x 100 times
+            #   Iteartion 3. [5] x 100 times
+
+            while len(rows_with_counts) > 0:
+                if first_count:
+                    first_count = False
+                else:
+                    # Generate next sequence to hammer and corresponding read count
+                    row_sequence = [row for row, _ in rows_with_counts]
+                    read_count = min([count for _ , count in rows_with_counts])
+
+                # print(f'Seq: {row_sequence}')
+                # print(f'Count: {read_count}')
+
+                # Encode hammering "row_sequence" for "read_count" times
+                refreshes += encode_one_readcount(row_sequence=row_sequence,
+                                    read_count=read_count,
+                                    timings=timings,
+                                    encoder=encoder,
+                                    bank=bank,
+                                    payload=payload,
+                                    refresh=refresh)
+                
+
+                # Update rows_with_counts so that it now contains read counts
+                # that are left to do. Rows whose read count has reached zero are removed
+                rows_with_counts = [(row, count - read_count) for row, count in rows_with_counts if count > read_count]
+
+        case 'sequential':
+            # Hammer sequentially. Example for row_sequence = [1, 3, 5], read_counts = [100, 200, 300]:            
+            #   Iteration 1. 1 x 100 times
+            #   Iteration 2. 2 x 200 times
+            #   Iteartion 3. 5 x 300 times
+            for row, count in rows_with_counts:
+                print(count, row)
+                refreshes += encode_one_readcount(row_sequence=[row],
+                                    read_count=count,
+                                    timings=timings,
+                                    encoder=encoder,
+                                    bank=bank,
+                                    payload=payload,
+                                    refresh=refresh)
+                
+        case _: 
+            raise ValueError('Incorrect hammering mode')
+        
+    return refreshes
+
+
+
+
 def generate_payload(
         *,
         row_sequence,
         read_counts,
+        mode='sequential',
+        payload,
         timings,
         bankbits,
         bank,
@@ -321,43 +284,14 @@ def generate_payload(
     # As we include REF as first instruction we actually wait tREFI here
     payload = [encoder.I(OpCode.NOOP, timeslice=max(1, trfc - 2, trefi - 2))]
 
-    # [1, 3, 5] [100, 200, 300]
-    # [1, 3, 5] => 100
-    # [3, 5] => 100
-    # [5] => 100
-
-    # Attaches read counts to corresponding rows
-    rows_with_counts = list(zip(row_sequence, read_counts))
-    read_count = min(read_counts)
-    first_count = True
-
-    # Go through read counts in ascending order and generate payload for that
-    # specific read count. Subtract from rows_with_counts to keep track
-    # of remaining accesses, removing rows for which read counts have reached zero
-    while len(rows_with_counts) > 0:
-        if first_count:
-            first_count = False
-        else:
-            # Generate next sequence to hammer and corresponding read count
-            row_sequence = [row for row, _ in rows_with_counts]
-            read_count = min([count for _ , count in rows_with_counts])
-
-        # print(f'Seq: {row_sequence}')
-        # print(f'Count: {read_count}')
-
-        # Encode hammering "row_sequence" for "read_count" times
-        encode_one_readcount(row_sequence=row_sequence,
-                            read_count=read_count,
-                            timings=timings,
-                            encoder=encoder,
-                            bank=bank,
-                            payload=payload,
-                            refresh=refresh)
-        
-
-        # Update rows_with_counts so that it now contains read counts
-        # that are left to do. Rows whose read count has reached zero are removed
-        rows_with_counts = [(row, count - read_count) for row, count in rows_with_counts if count > read_count]
+    issued_refreshes = encode_hammering(row_sequence=row_sequence,
+                                        read_counts=read_counts,
+                                        mode=mode,
+                                        payload=payload,
+                                        timings=timings,
+                                        bankbits=bankbits,
+                                        bank=bank,
+                                        refresh=refresh)
 
         # print(f'Rows and count: {rows_with_counts}')
 
@@ -367,10 +301,12 @@ def generate_payload(
     payload.append(encoder.I(OpCode.NOOP, timeslice=0))  # STOP
 
     if verbose:
-        print_payload_info(payload, payload_mem_size, read_count, row_sequence, sys_clk_freq)
+        print_payload_info(payload, payload_mem_size, issued_refreshes, sys_clk_freq)
 
     # Check that payload fits into payload memory
     check_payload(payload, payload_mem_size)
+
+    print(f'Expected cycles: {get_expected_execution_cycles(payload)}')
 
     # Encode payload
     return encoder(payload)
@@ -386,6 +322,7 @@ def generate_trr_test_payload(
         read_counts,
         rounds=1,
         refreshes=1,
+        mode='sequential',
         timings,
         bankbits,
         bank,
@@ -401,43 +338,17 @@ def generate_trr_test_payload(
     # As we include REF as first instruction we actually wait tREFI here
     payload = [encoder.I(OpCode.NOOP, timeslice=max(1, trfc - 2, trefi - 2))]
 
+    # Encode one round
     one_round = []
-    ###### ENCODE ONE ROUND ######
+    issued_refreshes = encode_hammering(row_sequence=row_sequence,
+                     read_counts=read_counts,
+                     mode=mode,
+                     payload=one_round,
+                     timings=timings,
+                     bankbits=bankbits,
+                     bank=bank,
+                     refresh=False)
 
-    # Attaches read counts to corresponding rows
-    rows_with_counts = list(zip(row_sequence, read_counts))
-    read_count = min(read_counts)
-    first_count = True
-
-    # Go through read counts in ascending order and generate payload for that
-    # specific read count. Subtract from rows_with_counts to keep track
-    # of remaining accesses, removing rows for which read counts have reached zero
-    while len(rows_with_counts) > 0:
-        if first_count:
-            first_count = False
-        else:
-            # Generate next sequence to hammer and corresponding read count
-            row_sequence = [row for row, _ in rows_with_counts]
-            read_count = min([count for _ , count in rows_with_counts])
-
-        # print(f'Seq: {row_sequence}')
-        # print(f'Count: {read_count}')
-
-        # Encode hammering "row_sequence" for "read_count" times
-        encode_one_readcount(row_sequence=row_sequence,
-                            read_count=read_count,
-                            timings=timings,
-                            encoder=encoder,
-                            bank=bank,
-                            payload=one_round,
-                            refresh=False)
-        
-
-        # Update rows_with_counts so that it now contains read counts
-        # that are left to do. Rows whose read count has reached zero are removed
-        rows_with_counts = [(row, count - read_count) for row, count in rows_with_counts if count > read_count]
-
-        # print(f'Rows and count: {rows_with_counts}')
 
     # Append refreshes at the end of round
     one_round.extend([encoder.I(OpCode.REF, timeslice=trfc)] * refreshes)
@@ -446,16 +357,18 @@ def generate_trr_test_payload(
     payload = [encoder.I(OpCode.NOOP, timeslice=max(1, trfc - 2, trefi - 2))]
 
     payload.extend(one_round * rounds)
+    issued_refreshes += refreshes * rounds
 
     # MC refresh timer is reset on mode transition, so issue REF now, this way it will be in sync with MC
     payload.append(encoder.I(OpCode.NOOP, timeslice=1))
     payload.append(encoder.I(OpCode.NOOP, timeslice=0))  # STOP
 
     if verbose:
-        print_payload_info(payload, payload_mem_size, read_count, row_sequence, sys_clk_freq)
+        print_payload_info(payload, payload_mem_size, issued_refreshes, sys_clk_freq)
 
     # Check that payload fits into payload memory
     check_payload(payload, payload_mem_size)
+    
 
     # Encode payload
     return encoder(payload)
@@ -496,21 +409,35 @@ if __name__ == '__main__':
     settings = get_litedram_settings()
     payload = []
     sys_clk_freq = float(get_generated_defs()['SYS_CLK_FREQ'])
+    row_sequence = [0, 2]
+    read_counts = [8000] * len(row_sequence)
 
-    # encoder = Encoder(settings.geom.bankbits)
-    # payload = test_payload_generation(wb, settings, encoder, payload, 0, 0, sys_clk_freq)
-    # # test_payload_generation(settings, encoder, payload, 0, 3)
-    # payload = encoder(payload)
-    payload = generate_trr_test_payload(row_sequence=[0, 2, 5],
-                               read_counts=[50000,50000,50000],
-                               rounds=2,
-                               refreshes=1,
-                                timings=settings.timing, 
-                                bankbits=settings.geom.bankbits, 
-                                bank=0, 
-                                payload_mem_size=wb.mems.payload.size, 
-                                verbose=True,
-                                sys_clk_freq=sys_clk_freq)
+    wb.regs.controller_settings_refresh.write(0)
+
+    payload = generate_trr_test_payload(row_sequence= row_sequence,
+                            read_counts=read_counts,
+                            rounds=5,
+                            refreshes=1,
+                            mode='interleaving',
+                            timings=settings.timing, 
+                            bankbits=settings.geom.bankbits, 
+                            bank=0, 
+                            payload_mem_size=wb.mems.payload.size, 
+                            verbose=True,
+                            sys_clk_freq=sys_clk_freq)
+    
+
+    # payload = generate_payload(row_sequence=row_sequence,
+    #                            read_counts=read_counts,
+    #                            timings=settings.timing,
+    #                            bankbits=settings.geom.bankbits,
+    #                            bank=0,
+    #                            payload_mem_size=wb.mems.payload.size,
+    #                            verbose=True,
+    #                            refresh=True,
+    #                            sys_clk_freq=sys_clk_freq)
+
+    wb.regs.controller_settings_refresh.write(1)
     check_payload(payload=payload, payload_mem_size=wb.mems.payload.size)
     # row_sequence = [a.row for a in actions]
     offset, size = 0x0, wb.mems.main_ram.size
