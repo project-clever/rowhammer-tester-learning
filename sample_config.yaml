@@ -1,0 +1,11 @@
+adapter:
+  # General settings
+  bank: 0
+  hammering_mode: 'interleaving' # 'interleaving' or 'sequential'
+  port: 4343
+  row_pattern: 'striped'
+  row_check_distance: 1
+  
+  # TRR settings
+  rounds: 2 # How many times a test is repeated
+  refreshes: 1 # Number of refreshes after each repetition

@@ -267,7 +267,6 @@ def generate_payload(
         row_sequence,
         read_counts,
         mode='sequential',
-        payload,
         timings,
         bankbits,
         bank,
@@ -306,7 +305,7 @@ def generate_payload(
     # Check that payload fits into payload memory
     check_payload(payload, payload_mem_size)
 
-    print(f'Expected cycles: {get_expected_execution_cycles(payload)}')
+    # print(f'Expected cycles: {get_expected_execution_cycles(payload)}')
 
     # Encode payload
     return encoder(payload)
@@ -410,32 +409,33 @@ if __name__ == '__main__':
     payload = []
     sys_clk_freq = float(get_generated_defs()['SYS_CLK_FREQ'])
     row_sequence = [0, 2]
-    read_counts = [8000] * len(row_sequence)
+    read_counts = [50000] * len(row_sequence)
 
     wb.regs.controller_settings_refresh.write(0)
 
-    payload = generate_trr_test_payload(row_sequence= row_sequence,
-                            read_counts=read_counts,
-                            rounds=5,
-                            refreshes=1,
-                            mode='interleaving',
-                            timings=settings.timing, 
-                            bankbits=settings.geom.bankbits, 
-                            bank=0, 
-                            payload_mem_size=wb.mems.payload.size, 
-                            verbose=True,
-                            sys_clk_freq=sys_clk_freq)
+    # payload = generate_trr_test_payload(row_sequence= row_sequence,
+    #                         read_counts=read_counts,
+    #                         rounds=5,
+    #                         refreshes=1,
+    #                         mode='interleaving',
+    #                         timings=settings.timing, 
+    #                         bankbits=settings.geom.bankbits, 
+    #                         bank=0, 
+    #                         payload_mem_size=wb.mems.payload.size, 
+    #                         verbose=True,
+    #                         sys_clk_freq=sys_clk_freq)
     
 
-    # payload = generate_payload(row_sequence=row_sequence,
-    #                            read_counts=read_counts,
-    #                            timings=settings.timing,
-    #                            bankbits=settings.geom.bankbits,
-    #                            bank=0,
-    #                            payload_mem_size=wb.mems.payload.size,
-    #                            verbose=True,
-    #                            refresh=True,
-    #                            sys_clk_freq=sys_clk_freq)
+    payload = generate_payload(row_sequence=row_sequence,
+                               read_counts=read_counts,
+                               mode='interleaving',
+                               timings=settings.timing,
+                               bankbits=settings.geom.bankbits,
+                               bank=0,
+                               payload_mem_size=wb.mems.payload.size,
+                               verbose=True,
+                               refresh=False,
+                               sys_clk_freq=sys_clk_freq)
 
     wb.regs.controller_settings_refresh.write(1)
     check_payload(payload=payload, payload_mem_size=wb.mems.payload.size)

@@ -1,12 +1,11 @@
 import socket
 import socketserver
-import signal
-import re
 import sys
 import json
+import yaml
+import argparse
 from hw_executor import HammerAction, HwExecutor
 # from typing import Optional
-# import yaml
 
 import logging
 
@@ -16,11 +15,17 @@ logging.basicConfig(level=logging.DEBUG, format="%(name)s: %(message)s")
 
 # Adapter which runs queries on the FPGA via HwExecutor
 class Adapter:
-    def __init__(self):
+    def __init__(self, config):
         self.localAddr: str = socket.gethostbyname(socket.gethostname())
         self.logger: logging.Logger = logging.getLogger("Adapter")
         self.logger.info("Creating hardware executor...")
+
         self.hw_exec = HwExecutor()
+        self.hw_exec.row_pattern = config['row_pattern']
+        self.hw_exec.row_check_distance = config['row_check_distance']
+        self.hw_exec.bank = config['bank']
+        self.hw_exec.hammering_mode = config['hammering_mode']
+        print(vars(self.hw_exec))
         
     
     def stop(self):
@@ -56,10 +61,10 @@ class QueryRequestHandler(socketserver.StreamRequestHandler):
 # Server running on port 4343 handling communication with Learner
 class AdapterServer(socketserver.TCPServer):
     def __init__(self, config, handler_class=QueryRequestHandler):
-        self.adapter = Adapter()
+        self.adapter = Adapter(config)
         self.logger = logging.getLogger("Server")
         self.logger.info("Initialising server...")
-        socketserver.TCPServer.__init__(self, ("0.0.0.0", 4343), handler_class)
+        socketserver.TCPServer.__init__(self, ("0.0.0.0", config['port']), handler_class)
         return
     
 
@@ -78,21 +83,25 @@ class AdapterServer(socketserver.TCPServer):
         sys.exit(1)
 
 
-# TODO: load config from file
-
-# def loadConfig(path):
-#     with open(path, "r") as stream:
-#         return yaml.safe_load(stream)["adapter"]
+def loadConfig(path):
+    with open(path, "r") as stream:
+        return yaml.safe_load(stream)['adapter']
 
 
-# config = loadConfig("/root/config.yaml")
-
-server = AdapterServer(QueryRequestHandler)
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+                    prog='ZCU104 Learnlib Adapter',
+                    description='This program listens for incoming Learnlib queries, \
+                        runs them over the ZCU104 board, and reports back the results.')
+    parser.add_argument('-c','--config', default='config.yaml', help='Configuration file for the adapter')
+    args = parser.parse_args()
+
+    config = loadConfig(args.config)
+    server = AdapterServer(config, QueryRequestHandler)
+
     try:
-        server.adapter.hw_exec.row_pattern='striped'
         server.serve_forever()
     except KeyboardInterrupt:
         server.logger.info("Shutting down.")

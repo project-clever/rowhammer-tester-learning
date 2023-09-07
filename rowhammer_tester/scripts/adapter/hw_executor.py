@@ -1,17 +1,12 @@
-import sys
-from collections import Counter, defaultdict
+from collections import defaultdict
 import time
-from rowhammer_tester.gateware.payload_executor import Decoder, Encoder, OpCode
 
 from rowhammer_tester.scripts.adapter.utils import generate_payload, generate_trr_test_payload, get_range_from_rows
-from rowhammer_tester.scripts.playbook.row_mappings import RowMapping,TrivialRowMapping
-from rowhammer_tester.scripts.utils import RemoteClient, get_expected_execution_cycles, get_litedram_settings, setup_inverters, DRAMAddressConverter, \
+from rowhammer_tester.scripts.playbook.row_mappings import RowMapping
+from rowhammer_tester.scripts.utils import RemoteClient, get_litedram_settings, setup_inverters, DRAMAddressConverter, \
     get_generated_defs, hw_memset, execute_payload, hw_memtest
 
-import json
-import itertools
 import re
-from timeit import default_timer as timer
 
 action_pattern = re.compile(r'HAMMER[(]\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*[)]')
 
@@ -50,8 +45,9 @@ class HwExecutor:
         # Keep track of row addresses and last actions/payload executed
         # so that repeated tests are done efficiently
         self._addresses_cache = {}
-        self._last_actions = None
-        self._last_payload = None
+        self._last_test_data = {}
+        # last_actions = None
+        # self._last_payload = None
 
         # Open connection to FPGA
         self._wb = RemoteClient()
@@ -65,6 +61,8 @@ class HwExecutor:
         # Intialise pattern data to all zeroes
         self._pattern_data = 0
 
+        # Set default hammering mode to interleaving (most effective)
+        self.hammering_mode = 'interleaving'
 
         # Set up row pattern (see __seattr__ below)
         self.row_pattern = 'all_0'
@@ -192,25 +190,27 @@ class HwExecutor:
         row_sequence = [a.row for a in actions]
         read_counts = [a.reads for a in actions]
 
+        cur_test_data = {'type': 'hammering', 'actions': actions, 'rounds': rounds, 'refreshes': refreshes}
+
         # Check if test is a repetition and, if so, use cached payload
         payload = None
-        if actions == self._last_actions:
+        if cur_test_data.items() <=  self._last_test_data.items():
             # print('Repetition!')
-            payload = self._last_payload
+            payload = self._last_test_data['payload']
         else:
             payload = generate_trr_test_payload(
                 row_sequence=row_sequence,
                 read_counts=read_counts,
                 rounds=rounds,
                 refreshes=refreshes,
+                mode=self.hammering_mode,
                 timings=self._settings.timing,
                 bankbits=self._settings.geom.bankbits,
                 bank=self.bank,
                 payload_mem_size=self._wb.mems.payload.size,
                 verbose=False,
                 sys_clk_freq=self._sys_clk_freq)
-            self._last_actions = actions
-            self._last_payload = payload
+            self._last_test_data = cur_test_data | {"payload": payload}
 
         return self._process_payload(row_sequence, payload)       
 
@@ -222,24 +222,25 @@ class HwExecutor:
         row_sequence = [a.row for a in actions]
         read_counts = [a.reads for a in actions]
 
+        cur_test_data = {'type': 'hammering', 'actions': actions}
         # Check if test is a repetition and, if so, use cached payload
         payload = None
-        if actions == self._last_actions:
+        if  cur_test_data.items() <= self._last_test_data.items():
             # print('Repetition!')
-            payload = self._last_payload
+            payload = self._last_test_data['payload']
         else:
             payload = generate_payload(
                 row_sequence=row_sequence,
                 read_counts=read_counts,
+                mode=self.hammering_mode,
                 timings=self._settings.timing,
                 bankbits=self._settings.geom.bankbits,
                 bank=self.bank,
                 payload_mem_size=self._wb.mems.payload.size,
-                refresh=True,
-                verbose=True,
+                refresh=False,
+                verbose=False,
                 sys_clk_freq=self._sys_clk_freq)
-            self._last_actions = actions
-            self._last_payload = payload
+            self._last_test_data = cur_test_data | {'payload': payload}
 
         return self._process_payload(row_sequence, payload)
         # print('Row sequence: ', row_sequence)
@@ -267,10 +268,24 @@ class HwExecutor:
 if __name__ == "__main__":
     hw_exec = HwExecutor()
     hw_exec.row_pattern = 'striped'
-    actions =  [HammerAction(i, 50000, 0) for i in range(0,1,2)]
+    hw_exec.hammering_mode = 'interleaving'
+    actions =  [HammerAction(i, 10000, 0) for i in [2, 4]]
+    actions_all = [HammerAction(i, 50000, 0) for i in [2, 4]]
 
-    print(actions)
+    print('Regular hammering:')
+    print(hw_exec.execute_hammering_test(actions_all))
 
-    for i in range(10): 
-        print(hw_exec.execute_trr_test(actions, rounds=4,refreshes=1))
+    print('No refreshes:')
+    for i in range(5): 
+        print(hw_exec.execute_trr_test(actions=actions, rounds=5,refreshes=0))
+        time.sleep(1)
+
+    print('With 1 refresh:')
+    for i in range(5): 
+        print(hw_exec.execute_trr_test(actions=actions, rounds=5,refreshes=1))
+        time.sleep(1)
+
+    print('With 2 refreshes:')        
+    for i in range(5): 
+        print(hw_exec.execute_trr_test(actions=actions, rounds=5,refreshes=2))
         time.sleep(1)
