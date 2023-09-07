@@ -1,5 +1,6 @@
 from collections import defaultdict
 import time
+import sys
 
 from rowhammer_tester.scripts.adapter.utils import generate_payload, generate_trr_test_payload, get_range_from_rows
 from rowhammer_tester.scripts.playbook.row_mappings import RowMapping
@@ -10,6 +11,7 @@ import re
 
 action_pattern = re.compile(r'HAMMER[(]\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*[)]')
 
+DEBUG = False
 
 # Models hammering action
 class HammerAction:
@@ -208,7 +210,7 @@ class HwExecutor:
                 bankbits=self._settings.geom.bankbits,
                 bank=self.bank,
                 payload_mem_size=self._wb.mems.payload.size,
-                verbose=False,
+                verbose=DEBUG,
                 sys_clk_freq=self._sys_clk_freq)
             self._last_test_data = cur_test_data | {"payload": payload}
 
@@ -238,7 +240,7 @@ class HwExecutor:
                 bank=self.bank,
                 payload_mem_size=self._wb.mems.payload.size,
                 refresh=False,
-                verbose=False,
+                verbose=DEBUG,
                 sys_clk_freq=self._sys_clk_freq)
             self._last_test_data = cur_test_data | {'payload': payload}
 
@@ -266,26 +268,24 @@ class HwExecutor:
 #   higher chances to correct bit flips
 
 if __name__ == "__main__":
+    args = sys.argv
+    
+    if len(args) > 1 and args[1] == '--debug':
+        DEBUG = True
+
     hw_exec = HwExecutor()
     hw_exec.row_pattern = 'striped'
     hw_exec.hammering_mode = 'interleaving'
-    actions =  [HammerAction(i, 10000, 0) for i in [2, 4]]
-    actions_all = [HammerAction(i, 50000, 0) for i in [2, 4]]
+    actions =  [HammerAction(i, 8000, 0) for i in [2, 4]]
+    # actions_all = [HammerAction(i, 8000, 0) for i in [2, 4]]
+    ref_count = [0, 1, 2, 3]
+    rounds = 10
+    iterations = 10
 
-    print('Regular hammering:')
-    print(hw_exec.execute_hammering_test(actions_all))
 
-    print('No refreshes:')
-    for i in range(5): 
-        print(hw_exec.execute_trr_test(actions=actions, rounds=5,refreshes=0))
-        time.sleep(1)
+    for n_ref in ref_count:             
+        print(f'With {n_ref} {"refresh" if n_ref == 1 else "refreshes"}')
+        for it in range(iterations):
+            print(hw_exec.execute_trr_test(actions=actions, rounds=rounds,refreshes=n_ref))
+            time.sleep(0.5)
 
-    print('With 1 refresh:')
-    for i in range(5): 
-        print(hw_exec.execute_trr_test(actions=actions, rounds=5,refreshes=1))
-        time.sleep(1)
-
-    print('With 2 refreshes:')        
-    for i in range(5): 
-        print(hw_exec.execute_trr_test(actions=actions, rounds=5,refreshes=2))
-        time.sleep(1)

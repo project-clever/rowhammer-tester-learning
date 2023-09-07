@@ -350,7 +350,9 @@ def generate_trr_test_payload(
 
 
     # Append refreshes at the end of round
-    one_round.extend([encoder.I(OpCode.REF, timeslice=trfc)] * refreshes)
+    # one_round.extend([encoder.I(OpCode.REF, timeslice=trfc)] * refreshes)
+    if refreshes > 0:
+        encode_refreshes(ref_count=refreshes, payload=one_round, timings=timings, bankbits=bankbits)
 
     # Generate payload
     payload = [encoder.I(OpCode.NOOP, timeslice=max(1, trfc - 2, trefi - 2))]
@@ -371,6 +373,37 @@ def generate_trr_test_payload(
 
     # Encode payload
     return encoder(payload)
+
+
+def encode_refreshes(        
+        *,
+        ref_count,
+        payload,
+        timings,
+        bankbits):
+    encoder = Encoder(bankbits)
+    trfc = timings.tRFC
+
+    if ref_count == 1:
+        payload.append(encoder.I(OpCode.REF, timeslice=trfc))
+    else:
+        count_max = 2 ** Decoder.LOOP_COUNT - 1
+        n_loops = ceil(ref_count / (count_max + 1))
+
+        for l in range(n_loops):
+            if l == 0:
+                loop_count = ref_count % (count_max + 1)
+                # print(f'Loop count: {loop_count}')
+                # print(f'Unrolled: {unrolled}')
+                if loop_count == 0:
+                    loop_count = count_max
+                else:
+                    loop_count -= 1
+            else:
+                loop_count = count_max
+
+            payload.append(encoder.I(OpCode.REF, timeslice=trfc))
+            payload.append(encoder.I(OpCode.LOOP, count=loop_count, jump=1))
 
 
 # Test hammering one row ~400k times
