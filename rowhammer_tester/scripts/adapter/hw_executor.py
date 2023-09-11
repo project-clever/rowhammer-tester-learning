@@ -2,7 +2,8 @@ from collections import defaultdict
 import time
 import sys
 
-from rowhammer_tester.scripts.adapter.utils import generate_payload, generate_trr_test_payload, get_range_from_rows
+from rowhammer_tester.scripts.adapter.payload_generators import generate_payload, generate_trr_test_payload, get_range_from_rows
+from rowhammer_tester.scripts.adapter.utils import LoopingInterruptibleThread
 from rowhammer_tester.scripts.playbook.row_mappings import RowMapping
 from rowhammer_tester.scripts.utils import RemoteClient, get_litedram_settings, setup_inverters, DRAMAddressConverter, \
     get_generated_defs, hw_memset, execute_payload, hw_memtest
@@ -276,16 +277,29 @@ if __name__ == "__main__":
     hw_exec = HwExecutor()
     hw_exec.row_pattern = 'striped'
     hw_exec.hammering_mode = 'interleaving'
-    actions =  [HammerAction(i, 8000, 0) for i in [2, 4]]
+    actions =  [HammerAction(i, 8000, 0) for i in [2, 4, 5000, 5002, 8000, 8002]]
     # actions_all = [HammerAction(i, 8000, 0) for i in [2, 4]]
-    ref_count = [0, 1, 2, 3]
-    rounds = 10
-    iterations = 10
+    ref_count = [0, 2, 5]#, 1, 2, 3]
+    rounds = 6
+    iterations = 5
+
+    def iteration(n_ref):
+        print(f'{n_ref} ref:\t', hw_exec.execute_trr_test(actions=actions, rounds=rounds,refreshes=n_ref))
+
+    test_thread = LoopingInterruptibleThread(function=iteration, 
+                                             iterator=ref_count, 
+                                             repetitions=iterations)
+    test_thread.start()
+    test_thread.join()
 
 
-    for n_ref in ref_count:             
-        print(f'With {n_ref} {"refresh" if n_ref == 1 else "refreshes"}')
-        for it in range(iterations):
-            print(hw_exec.execute_trr_test(actions=actions, rounds=rounds,refreshes=n_ref))
-            time.sleep(0.5)
+    # try:
+    #     for n_ref in ref_count:             
+    #         print(f'With {n_ref} {"refresh" if n_ref == 1 else "refreshes"}')
+    #         for it in range(iterations):
+    #             print(hw_exec.execute_trr_test(actions=actions, rounds=rounds,refreshes=n_ref))
+    #             # time.sleep(0.5)
+    # except KeyboardInterrupt:
+    #     print('Terminating.')
+    #     exit(-1)
 
