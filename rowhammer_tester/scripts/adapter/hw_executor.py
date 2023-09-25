@@ -265,12 +265,35 @@ class HwExecutor:
 #   higher chances to correct bit flips
 
 if __name__ == "__main__":
-    hw_exec = HwExecutor()
-    hw_exec.row_pattern = 'striped'
-    actions =  [HammerAction(i, 50000, 0) for i in range(0,1,2)]
 
-    print(actions)
+    for number_of_refereshes_to_try in range(0,10):
+        hw_exec = HwExecutor()
+        hw_exec.row_pattern = 'striped'
+        actions =  [HammerAction(i, 15000, 0) for i in range(0,3,2)]
 
-    for i in range(10): 
-        print(hw_exec.execute_trr_test(actions, rounds=4,refreshes=1))
-        time.sleep(1)
+        print(actions)
+        print ("--------------------")
+        print ("number of refreshes: ", number_of_refereshes_to_try)
+        print ("--------------------")
+        number_of_tries = 5
+        sum_of_accesses = {}
+        for i in range(number_of_tries): 
+            print ("attempt number: ", i)
+            print ("********************")
+            r = hw_exec.execute_trr_test(actions, rounds=4,refreshes=number_of_refereshes_to_try)
+            print(r)
+            for row in r.keys():
+                if row in sum_of_accesses:
+                    sum_of_accesses[row] += r[row] 
+                else:
+                    sum_of_accesses[row] = r[row] 
+            time.sleep(1)
+        
+        print ("Average number of flips per row:")
+        for rows in sum_of_accesses.keys():
+            print (row, ", ", sum_of_accesses[row]/number_of_tries)
+
+# Current experiments show that after setting number_of_refereshes_to_try to 7
+# it doesn't face any bitflips
+# TODO: need to change the refresh and increse the number of accessed rows in
+# order to get a better understanding of it
