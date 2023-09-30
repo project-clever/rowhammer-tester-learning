@@ -157,18 +157,108 @@ class HwExecutor:
     # Sets up FPGA to handle specific data pattern
     def __setattr__(self, key, value):
         if key == 'row_pattern':
-            inversion_divisor = 0
-            inversion_mask = 0
-
+            inversion_divisor = 0   # It is dividing the row numbers in group modulo this value
+            inversion_mask = 0      # It shows what rows in each group should be inverted 
+                                    #   row numbers that their bits are 1 in this variable will be inverted
             match value:
                 case 'all_1':
                     self._pattern_data = 2 ** 32 - 1
+#   Row             Value
+#   0               11111111111111111111111111111111
+#   1               11111111111111111111111111111111
+#   2               11111111111111111111111111111111
+#   3               11111111111111111111111111111111
                 case 'all_0':
                     self._pattern_data = 0
+#   Row             Value
+#   0               00000000000000000000000000000000
+#   1               00000000000000000000000000000000
+#   2               00000000000000000000000000000000
+#   3               00000000000000000000000000000000
                 case 'striped':
                     self._pattern_data = 2 ** 32 - 1
                     inversion_divisor = 2
                     inversion_mask = 0b10
+#   Row             Value
+#   0               11111111111111111111111111111111
+#   1               00000000000000000000000000000000
+#   2               11111111111111111111111111111111
+#   3               00000000000000000000000000000000
+                case 'striped_i':
+                    self._pattern_data = 2 ** 32 - 1
+                    inversion_divisor = 2
+                    inversion_mask = 0b01
+#   Row             Value
+#   0               00000000000000000000000000000000
+#   1               11111111111111111111111111111111
+#   2               00000000000000000000000000000000
+#   3               11111111111111111111111111111111
+                case 'alternate_10':
+                    alternating_pattern = "10" * (32 // 2)
+                    print(alternating_pattern)
+                    self._pattern_data = int(alternating_pattern, 2)
+                    inversion_divisor = 2
+                    inversion_mask = 0b10
+#   Row             Value
+#   0               10101010101010101010101010101010
+#   1               01010101010101010101010101010101
+#   2               10101010101010101010101010101010
+#   3               01010101010101010101010101010101
+                case 'alternate_01':
+                    alternating_pattern = "01" * (32 // 2)
+                    print(alternating_pattern)
+                    self._pattern_data = int(alternating_pattern, 2)
+                    inversion_divisor = 2
+                    inversion_mask = 0b10
+#   Row             Value
+#   0               01010101010101010101010101010101
+#   1               10101010101010101010101010101010
+#   2               01010101010101010101010101010101
+#   3               10101010101010101010101010101010
+                case 'alternate_0011':
+                    alternating_pattern = "0011" * (32 // 4)
+                    print(alternating_pattern)
+                    self._pattern_data = int(alternating_pattern, 2)
+                    inversion_divisor = 2
+                    inversion_mask = 0b10
+#   Row             Value
+#   0               00110011001100110011001100110011
+#   1               11001100110011001100110011001100
+#   2               00110011001100110011001100110011
+#   3               11001100110011001100110011001100
+                case 'alternate_1100':
+                    alternating_pattern = "1100" * (32 // 4)
+                    print(alternating_pattern)
+                    self._pattern_data = int(alternating_pattern, 2)
+                    inversion_divisor = 2
+                    inversion_mask = 0b10
+#   Row             Value
+#   0               11001100110011001100110011001100
+#   1               00110011001100110011001100110011
+#   2               11001100110011001100110011001100
+#   3               00110011001100110011001100110011
+                case 'alternate_00001111':
+                    alternating_pattern = "00001111" * (32 // 8)
+                    print(alternating_pattern)
+                    self._pattern_data = int(alternating_pattern, 2)
+                    inversion_divisor = 2
+                    inversion_mask = 0b10
+#   Row             Value
+#   0               00001111000011110000111100001111
+#   1               11110000111100001111000011110000
+#   2               00001111000011110000111100001111
+#   3               11110000111100001111000011110000
+                case 'alternate_11110000':
+                    alternating_pattern = "11110000" * (32 // 8)
+                    print(alternating_pattern)
+                    self._pattern_data = int(alternating_pattern, 2)
+                    inversion_divisor = 2
+                    inversion_mask = 0b10
+#   Row             Value
+#   0               11110000111100001111000011110000
+#   1               00001111000011110000111100001111
+#   2               11110000111100001111000011110000
+#   3               00001111000011110000111100001111
                 case _:
                     raise ValueError('Illegal pattern provided')
 
@@ -268,7 +358,19 @@ if __name__ == "__main__":
 
     for number_of_refereshes_to_try in range(0,10):
         hw_exec = HwExecutor()
-        hw_exec.row_pattern = 'striped'
+        hw_exec.row_pattern = 'alternate_11110000'
+# available patterns:
+# 'all_1'
+# 'all_0'
+# 'striped'
+# 'striped_i'
+# 'alternate_10'
+# 'alternate_01'
+# 'alternate_0011'
+# 'alternate_1100'
+# 'alternate_00001111'
+# 'alternate_11110000'
+
         actions =  [HammerAction(i, 15000, 0) for i in range(0,3,2)]
 
         print(actions)
@@ -294,6 +396,18 @@ if __name__ == "__main__":
             print (row, ", ", sum_of_accesses[row]/number_of_tries)
 
 # Current experiments show that after setting number_of_refereshes_to_try to 7
-# it doesn't face any bitflips
+# in an `striped` mode, it doesn't face any bitflips
+
 # TODO: need to change the refresh and increse the number of accessed rows in
 # order to get a better understanding of it
+# average bit flips per pattern in row #1 with 0 refreshes:
+# 'all_1' :             3.8 
+# 'all_0' :             0.2
+# 'striped':            26.4
+# 'striped_i':          27.0
+# 'alternate_10':       25.2
+# 'alternate_01':       37.4
+# 'alternate_0011':     39.2
+# 'alternate_1100':     43.6
+# 'alternate_00001111': 42.2
+# 'alternate_11110000': 41.8
