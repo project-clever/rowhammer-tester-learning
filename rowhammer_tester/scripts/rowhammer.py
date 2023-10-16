@@ -216,20 +216,7 @@ class RowHammer:
 
         print()
 
-    def run(self, row_pairs, pattern_generator, read_count, row_progress=16, verify_initial=False):
-        """
-        Main part of the script.
-        First fills the memory with specified patterns, then optionally checks its integrity.
-        It disables refreshes if requested.
-        Next it executes the attack, one row pair at a time.
-        If refreshes were disabled, it reenables them.
-        It checks for errors, and if any were found, displays them.
-        """
-
-        # TODO: need to invert data when writing/reading, make sure Python integer inversion works correctly
-        if self.data_inversion:
-            raise NotImplementedError('Currently only HW rowhammer supports data inversion')
-
+    def prepare_memory(self):
         print('\nPreparing ...')
         row_patterns = pattern_generator(self.rows)
 
@@ -251,6 +238,22 @@ class RowHammer:
                 print()
                 self.display_errors(errors, read_count)
                 return
+
+    def run(self, row_pairs, pattern_generator, read_count, row_progress=16, verify_initial=False):
+        """
+        Main part of the script.
+        First fills the memory with specified patterns, then optionally checks its integrity.
+        It disables refreshes if requested.
+        Next it executes the attack, one row pair at a time.
+        If refreshes were disabled, it reenables them.
+        It checks for errors, and if any were found, displays them.
+        """
+
+        # TODO: need to invert data when writing/reading, make sure Python integer inversion works correctly
+        if self.data_inversion:
+            raise NotImplementedError('Currently only HW rowhammer supports data inversion')
+
+        self.prepare_memory()
 
         if self.no_refresh:
             print('\nDisabling refresh ...')
@@ -295,6 +298,8 @@ class RowHammer:
             timings=self.settings.timing,
             bankbits=self.settings.geom.bankbits,
             bank=self.bank,
+            nranks=self.settings.phy.nranks,
+            rank=0,
             payload_mem_size=self.wb.mems.payload.size,
             refresh=not self.no_refresh,
             sys_clk_freq=sys_clk_freq,
@@ -349,7 +354,12 @@ def main(row_hammer_cls):
         help='Pattern written to DRAM before running attacks')
     row_selector_group = parser.add_mutually_exclusive_group()
     row_selector_group.add_argument(
-        '--hammer-only', nargs=2, type=int, help='Run only the Rowhammer attack')
+        '--hammer-only',
+        nargs='+',
+        type=int,
+        help='Run only the Rowhammer attack. '
+        'If BIST or DMA mode is used exactly 2 rows must be provided.'
+        'If payload executor is used, any number of rows can be provided')
     row_selector_group.add_argument(
         '--row-pairs',
         choices=['sequential', 'const', 'random'],
@@ -381,9 +391,7 @@ def main(row_hammer_cls):
         required=False,
         help='Jump between rows when using --all-rows')
     parser.add_argument(
-        '--payload-executor',
-        action='store_true',
-        help='Do the attack using Payload Executor (1st row only)')
+        '--payload-executor', action='store_true', help='Do the attack using Payload Executor')
     parser.add_argument('-v', '--verbose', action='store_true', help='Be more verbose')
     parser.add_argument("--srv", action="store_true", help='Start LiteX server')
     parser.add_argument(

@@ -18,6 +18,7 @@ from rowhammer_tester.scripts.rowhammer import RowHammer, main
 class HwRowHammer(RowHammer):
 
     def attack(self, row_tuple, read_count, progress_header=''):
+        assert len(row_tuple) <= 32
         addresses = [
             self.converter.encode_dma(bank=self.bank, col=self.column, row=r) for r in row_tuple
         ]
@@ -37,11 +38,13 @@ class HwRowHammer(RowHammer):
 
         # Do not increment memory address
         self.wb.regs.reader_mem_mask.write(0x00000000)
-        self.wb.regs.reader_data_mask.write(len(row_tuple) - 1)
+        self.wb.regs.reader_modulo.write(1)
+        self.wb.regs.reader_data_div.write(len(row_tuple) - 1)
+        #self.wb.regs.reader_data_mask.write(len(row_tuple) - 1)
 
         # Attacked addresses
-        memwrite(self.wb, addresses, base=self.wb.mems.writer_pattern_addr.base)
         memwrite(self.wb, addresses, base=self.wb.mems.reader_pattern_addr.base)
+        memwrite(self.wb, ([0xaaaaaaaa] * 16), base=self.wb.mems.reader_pattern_data.base)
 
         # how many
         print('read_count: ' + str(int(read_count)))
@@ -63,11 +66,11 @@ class HwRowHammer(RowHammer):
             progress(r_count)
             if self.wb.regs.reader_ready.read():
                 break
-            else:
-                time.sleep(10 / 1e3)
+            time.sleep(10 / 1e3)
 
         progress(self.wb.regs.reader_done.read())  # also clears the value
         print()
+        self.wb.regs.reader_modulo.write(0)
 
     def check_errors(self, row_pattern):
         dma_data_width = self.settings.phy.dfi_databits * self.settings.phy.nphases
@@ -120,7 +123,12 @@ class HwRowHammer(RowHammer):
             for i, row_tuple in enumerate(row_pairs, start=1):
                 s = 'Iter {:{n}} / {:{n}}'.format(i, len(row_pairs), n=len(str(len(row_pairs))))
                 if self.payload_executor:
-                    self.payload_executor_attack(read_count=read_count, row_tuple=row_tuple)
+                    # 1 read count maps to 1 ACT sent to all selected rows
+                    # To keep read_count consistent with BIST behaviour read_count
+                    # must be divided by number of rows, and rounded up
+                    self.payload_executor_attack(
+                        read_count=(read_count + len(row_tuple) - 1) // len(row_tuple),
+                        row_tuple=row_tuple)
                 else:
                     if len(row_tuple) & (len(row_tuple) - 1) != 0:
                         print("ERROR: BIST only supports power of 2 rows\n")
