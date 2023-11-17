@@ -18,11 +18,15 @@ else ifeq ($(TARGET),lpddr4_test_board)
 OFL_BOARD := antmicro_lpddr4_tester
 else ifeq ($(TARGET),ddr5_tester)
 OFL_BOARD := antmicro_ddr5_tester
+OFL_EXTRA_ARGS := --freq 3e6
 else ifeq ($(TARGET),ddr5_test_board)
 OFL_BOARD := antmicro_lpddr4_tester
 else ifeq ($(TARGET),zcu104)
 # For ZCU104 please copy the file build/zcu104/gateware/zcu104.bit to the boot partition on microSD card
 TOP := xilinx_zcu104
+else ifeq ($(TARGET),ddr5_tester_linux)
+OFL_BOARD := antmicro_ddr5_tester
+TOP := antmicro_ddr5_tester
 else
 $(error Unsupported board type)
 endif
@@ -32,6 +36,7 @@ endif
 ARGS ?=
 NET_ARGS := --ip-address $(IP_ADDRESS) --mac-address $(MAC_ADDRESS) --udp-port $(UDP_PORT)
 TARGET_ARGS := $(NET_ARGS) $(ARGS)
+OFL_EXTRA_ARGS ?=
 
 # Update PATH to activate the Python venv and include all required binaries
 # Adding vnev/bin to PATH forces usage of the Python binary from venv,
@@ -70,7 +75,7 @@ ifeq ($(TARGET),zcu104)
 	@echo "For ZCU104 please copy the file build/zcu104/gateware/zcu104.bit to the boot partition on microSD card"
 	@exit 1
 else
-	openFPGALoader --board $(OFL_BOARD) build/$(TARGET)/gateware/$(TOP).bit
+	openFPGALoader --board $(OFL_BOARD) $(OFL_EXTRA_ARGS) build/$(TARGET)/gateware/$(TOP).bit
 endif
 
 flash: FORCE
@@ -116,7 +121,7 @@ format: FORCE
 
 BRANCH := $(shell git rev-parse --abbrev-ref HEAD | tr '/' '_')
 COMMIT := $(shell git rev-parse HEAD | head -c8)
-ZIP_CONTENTS := $(addprefix build/$(TARGET)/,csr.csv defs.csv sdram_init.py litedram_settings.json gateware/$(TOP).bit)
+ZIP_CONTENTS ?= $(addprefix build/$(TARGET)/,csr.csv defs.csv sdram_init.py litedram_settings.json gateware/$(TOP).bit)
 
 .PHONY: pack
 pack: $(ZIP_CONTENTS)
