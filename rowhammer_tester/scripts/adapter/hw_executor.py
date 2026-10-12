@@ -1,5 +1,4 @@
 from collections import defaultdict
-import time
 import sys
 
 from rowhammer_tester.scripts.adapter.payload_generators import generate_payload, generate_trr_test_payload, get_range_from_rows
@@ -14,6 +13,35 @@ action_pattern = re.compile(r'HAMMER[(]\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*[)]')
 
 DEBUG = False
 
+
+# Data patterns written to memory before hammering. Each entry is
+# (pattern_data, inversion_divisor, inversion_mask):
+#   - pattern_data: the 32-bit word written to every column of a row;
+#   - inversion_divisor: rows are grouped modulo this value (0 = no inversion);
+#   - inversion_mask: within a group, rows whose index bit is set are inverted.
+# Row layouts for the first four rows are shown alongside each entry.
+ROW_PATTERNS = {
+    'all_1':              (2 ** 32 - 1,                    0, 0),
+    'all_0':              (0,                              0, 0),
+    #                          0 11..1   1 00..0   2 11..1   3 00..0
+    'striped':            (2 ** 32 - 1,                    2, 0b10),
+    #                          0 00..0   1 11..1   2 00..0   3 11..1
+    'striped_i':          (2 ** 32 - 1,                    2, 0b01),
+    #                          0 1010..  1 0101..  2 1010..  3 0101..
+    'alternate_10':       (int('10' * (32 // 2), 2),       2, 0b10),
+    #                          0 0101..  1 1010..  2 0101..  3 1010..
+    'alternate_01':       (int('01' * (32 // 2), 2),       2, 0b10),
+    #                          0 0011..  1 1100..  2 0011..  3 1100..
+    'alternate_0011':     (int('0011' * (32 // 4), 2),     2, 0b10),
+    #                          0 1100..  1 0011..  2 1100..  3 0011..
+    'alternate_1100':     (int('1100' * (32 // 4), 2),     2, 0b10),
+    #                          0 00001111..  1 11110000..  2 00001111..  3 11110000..
+    'alternate_00001111': (int('00001111' * (32 // 8), 2), 2, 0b10),
+    #                          0 11110000..  1 00001111..  2 11110000..  3 00001111..
+    'alternate_11110000': (int('11110000' * (32 // 8), 2), 2, 0b10),
+}
+
+
 # Models hammering action
 class HammerAction:
     def __init__(self, row, reads, bitflips):
@@ -24,18 +52,24 @@ class HammerAction:
     @staticmethod
     def from_string(action: str):
         parsed_action = re.search(action_pattern, action)
+        if parsed_action is None:
+            raise ValueError(f'Malformed hammer action: {action!r} '
+                             '(expected HAMMER(<row>, <reads>, <bitflips>))')
 
         row: int = int(parsed_action.group(1))
         reads: int = int(parsed_action.group(2))
         bitflips: int = int(parsed_action.group(3))
 
         return HammerAction(row, reads, bitflips)
-    
+
     def __eq__(self, other):
         return isinstance(other, HammerAction) and \
         ( self.row == other.row and
           self.reads == other.reads and
           self.bitflips == other.bitflips )
+
+    def __hash__(self):
+        return hash((self.row, self.reads, self.bitflips))
 
     def __repr__(self):
         return f'HAMMER({self.row}, {self.reads}, {self.bitflips})'
@@ -61,13 +95,15 @@ class HwExecutor:
         self._converter = DRAMAddressConverter.load()
         self._sys_clk_freq = float(get_generated_defs()['SYS_CLK_FREQ'])
 
-        # Intialise pattern data to all zeroes
+        # Initialise pattern data to all zeroes
         self._pattern_data = 0
+        self._row_pattern = None
 
         # Set default hammering mode to interleaving (most effective)
         self.hammering_mode = 'interleaving'
 
-        # Set up row pattern (see __seattr__ below)
+        # Set up row pattern (see the row_pattern property below). This is
+        # done after _wb is open, because setting it programs the inverters.
         self.row_pattern = 'all_0'
         # Neighbour distance
         self.row_check_distance = 1
@@ -155,65 +191,26 @@ class HwExecutor:
         return row_flip
 
 
-    # Sets up FPGA to handle specific data pattern
-    def __setattr__(self, key, value):
-        if key == 'row_pattern':
-            inversion_divisor = 0
-            inversion_mask = 0
+    # Current data pattern name (see ROW_PATTERNS)
+    @property
+    def row_pattern(self):
+        return self._row_pattern
 
-            match value:
-                case 'all_1':
-                    self._pattern_data = 2 ** 32 - 1
-                case 'all_0':
-                    self._pattern_data = 0
-                case 'striped':
-                    self._pattern_data = 2 ** 32 - 1
-                    inversion_divisor = 2
-                    inversion_mask = 0b10
-                # Row layouts shown for the first four rows. inversion_divisor
-                # groups rows modulo its value; inversion_mask selects which
-                # rows in each group are inverted.
-                case 'striped_i':
-                    self._pattern_data = 2 ** 32 - 1
-                    inversion_divisor = 2
-                    inversion_mask = 0b01
-                #   0  00..0   1  11..1   2  00..0   3  11..1
-                case 'alternate_10':
-                    self._pattern_data = int('10' * (32 // 2), 2)
-                    inversion_divisor = 2
-                    inversion_mask = 0b10
-                #   0  1010..  1  0101..  2  1010..  3  0101..
-                case 'alternate_01':
-                    self._pattern_data = int('01' * (32 // 2), 2)
-                    inversion_divisor = 2
-                    inversion_mask = 0b10
-                #   0  0101..  1  1010..  2  0101..  3  1010..
-                case 'alternate_0011':
-                    self._pattern_data = int('0011' * (32 // 4), 2)
-                    inversion_divisor = 2
-                    inversion_mask = 0b10
-                #   0  0011..  1  1100..  2  0011..  3  1100..
-                case 'alternate_1100':
-                    self._pattern_data = int('1100' * (32 // 4), 2)
-                    inversion_divisor = 2
-                    inversion_mask = 0b10
-                #   0  1100..  1  0011..  2  1100..  3  0011..
-                case 'alternate_00001111':
-                    self._pattern_data = int('00001111' * (32 // 8), 2)
-                    inversion_divisor = 2
-                    inversion_mask = 0b10
-                #   0  00001111..  1  11110000..  2  00001111..  3  11110000..
-                case 'alternate_11110000':
-                    self._pattern_data = int('11110000' * (32 // 8), 2)
-                    inversion_divisor = 2
-                    inversion_mask = 0b10
-                #   0  11110000..  1  00001111..  2  11110000..  3  00001111..
-                case _:
-                    raise ValueError('Illegal pattern provided')
+    # Sets up the FPGA to write a specific data pattern before hammering.
+    # Programming the inverters requires an open connection, so _wb must
+    # already be set when this is assigned.
+    @row_pattern.setter
+    def row_pattern(self, value):
+        try:
+            pattern_data, inversion_divisor, inversion_mask = ROW_PATTERNS[value]
+        except KeyError:
+            raise ValueError(
+                f'Illegal pattern {value!r}; choose one of: '
+                f'{", ".join(ROW_PATTERNS)}') from None
 
-            setup_inverters(self._wb, inversion_divisor, inversion_mask)
-
-        super(HwExecutor, self).__setattr__(key, value)
+        self._pattern_data = pattern_data
+        setup_inverters(self._wb, inversion_divisor, inversion_mask)
+        self._row_pattern = value
 
 
     def _process_payload(self, row_sequence, payload):
@@ -288,13 +285,29 @@ class HwExecutor:
         # row_sequence = [a.row for a in actions]
 
 
-    # Closes connection to FPGA
+    # Closes connection to FPGA. Safe to call more than once.
     def stop(self):
-        self._wb.close()
+        wb = getattr(self, '_wb', None)
+        if wb is not None:
+            wb.close()
+            self._wb = None
 
-    # Stops when object is destroyed
-    def __del__(self):
+    # Context-manager support so callers can use `with HwExecutor() as hw:`
+    # and get deterministic cleanup instead of relying on __del__.
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
         self.stop()
+
+    # Best-effort cleanup if the caller forgot to call stop(). __del__ runs
+    # during garbage collection, where exceptions are only printed, so guard
+    # against a half-initialised object and swallow shutdown errors.
+    def __del__(self):
+        try:
+            self.stop()
+        except Exception:
+            pass
 
 
 # How to detect presence of TRR?
@@ -307,37 +320,23 @@ class HwExecutor:
 #   higher chances to correct bit flips
 
 if __name__ == "__main__":
-    args = sys.argv
-    
-    if len(args) > 1 and args[1] == '--debug':
+    if len(sys.argv) > 1 and sys.argv[1] == '--debug':
         DEBUG = True
 
-    hw_exec = HwExecutor()
-    hw_exec.row_pattern = 'striped'
-    hw_exec.hammering_mode = 'interleaving'
-    actions =  [HammerAction(i, 8000, 0) for i in [2, 4, 5000, 5002, 8000, 8002]]
-    # actions_all = [HammerAction(i, 8000, 0) for i in [2, 4]]
-    ref_count = [0, 2, 5]#, 1, 2, 3]
-    rounds = 6
-    iterations = 5
+    with HwExecutor() as hw_exec:
+        hw_exec.row_pattern = 'striped'
+        hw_exec.hammering_mode = 'interleaving'
+        actions = [HammerAction(i, 8000, 0) for i in [2, 4, 5000, 5002, 8000, 8002]]
+        ref_count = [0, 2, 5]
+        rounds = 6
+        iterations = 5
 
-    def iteration(n_ref):
-        print(f'{n_ref} ref:\t', hw_exec.execute_trr_test(actions=actions, rounds=rounds,refreshes=n_ref))
+        def iteration(n_ref):
+            print(f'{n_ref} ref:\t', hw_exec.execute_trr_test(actions=actions, rounds=rounds, refreshes=n_ref))
 
-    test_thread = LoopingInterruptibleThread(function=iteration, 
-                                             iterator=ref_count, 
-                                             repetitions=iterations)
-    test_thread.start()
-    test_thread.join()
-
-
-    # try:
-    #     for n_ref in ref_count:             
-    #         print(f'With {n_ref} {"refresh" if n_ref == 1 else "refreshes"}')
-    #         for it in range(iterations):
-    #             print(hw_exec.execute_trr_test(actions=actions, rounds=rounds,refreshes=n_ref))
-    #             # time.sleep(0.5)
-    # except KeyboardInterrupt:
-    #     print('Terminating.')
-    #     exit(-1)
+        test_thread = LoopingInterruptibleThread(function=iteration,
+                                                 iterator=ref_count,
+                                                 repetitions=iterations)
+        test_thread.start()
+        test_thread.join()
 

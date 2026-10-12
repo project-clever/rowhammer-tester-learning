@@ -4,13 +4,12 @@ import sys
 import json
 import yaml
 import argparse
+
 from hw_executor import HammerAction, HwExecutor
-# from typing import Optional
 
 import logging
 
 logging.basicConfig(level=logging.DEBUG, format="%(name)s: %(message)s")
-
 
 
 # Adapter which runs queries on the FPGA via HwExecutor
@@ -25,36 +24,40 @@ class Adapter:
         self.hw_exec.row_check_distance = config['row_check_distance']
         self.hw_exec.bank = config['bank']
         self.hw_exec.hammering_mode = config['hammering_mode']
-        print(vars(self.hw_exec))
-        
-    
+        self.logger.debug("Executor configured: %s", vars(self.hw_exec))
+
     def stop(self):
         self.hw_exec.stop()
 
-    def handle_query(self, query: str) -> str:
-        test = query.split()
-        actions = [HammerAction.from_string(a_str) for a_str in test]
+    def handle_query(self, query: str) -> dict:
+        actions = [HammerAction.from_string(a_str) for a_str in query.split()]
         return self.hw_exec.execute_hammering_test(actions)
 
 
 # Handles queries by forwarding them to Adapter and sending response back to Learner
 class QueryRequestHandler(socketserver.StreamRequestHandler):
-    def __init__(self, request, client_address, server):
-        self.logger = logging.getLogger("Query Handler")
-        socketserver.BaseRequestHandler.__init__(self, request, client_address, server)
-        return
+    logger = logging.getLogger("Query Handler")
 
     def handle(self):
         while True:
-            query = self.rfile.readline().strip().decode("utf-8").rstrip("\n")
-            if query != "":
-                self.logger.info("Received query: " + query)
-                if isinstance(self.server, AdapterServer):
-                    answer = self.server.adapter.handle_query(query)
-                    self.wfile.write(bytearray(json.dumps(answer) + "\n", "utf-8"))
-            else:
+            line = self.rfile.readline()
+            if not line:
+                # Connection closed by the learner.
                 return
-        # sys.exit(0)
+            query = line.decode("utf-8").strip()
+            if query == "":
+                return
+            self.logger.info("Received query: %s", query)
+            if not isinstance(self.server, AdapterServer):
+                continue
+            try:
+                answer = self.server.adapter.handle_query(query)
+            except ValueError as exc:
+                # Malformed query: report the error instead of dropping the
+                # connection, so the learner can see what went wrong.
+                self.logger.warning("Rejecting query %r: %s", query, exc)
+                answer = {"error": str(exc)}
+            self.wfile.write((json.dumps(answer) + "\n").encode("utf-8"))
 
 
 

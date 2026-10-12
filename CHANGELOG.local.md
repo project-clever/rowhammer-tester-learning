@@ -3,6 +3,41 @@
 Changes made on top of upstream `antmicro/rowhammer-tester` (base commit `9e0561b`), newest first.
 Each entry gives the problem, the change and how it was checked.
 
+## 2026-10-12: Oracle robustness and Python 3.12 review
+
+**Files:** `rowhammer_tester/scripts/adapter/{adapter.py, hw_executor.py, utils.py}`,
+new `rowhammer_tester/scripts/adapter/tests/test_oracle_logic.py`
+
+**Problem.** A review of the automata-learning oracle against Python 3.12.3 found
+no incompatibilities but several latent bugs and fragile constructs:
+
+1. `HwExecutor.__setattr__` intercepted every attribute assignment to handle
+   `row_pattern`, and the pattern cases read `self._pattern_data`/`self._wb` by
+   order of assignment in `__init__`; reordering or a non-`all_0` default would
+   crash.
+2. `HammerAction` defined `__eq__` but not `__hash__`, so instances were
+   unhashable (fine today, a trap for any future set/dict use).
+3. `HammerAction.from_string` raised an opaque `AttributeError` on malformed
+   input, which came straight from the socket, killing the handler thread.
+4. `LoopingInterruptibleThread.__init__` called `signal.signal` unconditionally,
+   which fails off the main thread and silently hijacks the process SIGINT.
+5. `HwExecutor.__del__` called `_wb.close()` with no guard against a
+   half-initialised object or shutdown-time errors.
+
+**Change.** Pattern definitions moved to a module-level `ROW_PATTERNS` table and
+`row_pattern` became a property (`__setattr__` override removed). `HammerAction`
+gained `__hash__`; `from_string` now raises a clear `ValueError`, which the
+server catches and returns to the learner as `{"error": ...}` instead of
+dropping the connection. The SIGINT handler is now opt-in
+(`install_sigint_handler`, main-thread-only) and the thread gained a `stop()`
+method. `HwExecutor` gained context-manager support and a guarded `stop()`/
+`__del__`. Debug `print(vars(...))` replaced by a logger call; dead code removed.
+
+**Checked.** New offline unit tests (14 cases) pass under Python 3.12.3: query
+parsing including the malformed-input path, action equality/hashing, the
+`ROW_PATTERNS` values, the `row_pattern` setter, and the thread's run/stop and
+signal-handler guards. Not yet exercised on the board.
+
 ## 2026-10-12: `spd_eeprom.py read` works on ZCU104
 
 **Files:** `rowhammer_tester/scripts/spd_eeprom.py`, new `spd/MTA4ATF51264HZ-3G2J1.bin`
