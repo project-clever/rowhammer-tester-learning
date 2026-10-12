@@ -58,6 +58,13 @@ class CRG(Module):
             f" got {iodelay_clk_freq / 1e6} MHz"
         )
         self.submodules.idelayctrl = USIDELAYCTRL(cd_ref=self.cd_idelay, cd_sys=self.cd_sys)
+        # LiteX hard-codes SIM_DEVICE="ULTRASCALE", but ZCU104 is UltraScale+.
+        # Newer Vivado versions fail bitstream DRC (ADEF-911) on the mismatch.
+        for special in self.idelayctrl._fragment.specials:
+            if isinstance(special, Instance) and special.of == "IDELAYCTRL":
+                for item in special.items:
+                    if isinstance(item, Instance.Parameter) and item.name == "SIM_DEVICE":
+                        item.value = "ULTRASCALE_PLUS"
 
     @classmethod
     def find_iodelay_clk_freq(cls, sys_clk_freq):

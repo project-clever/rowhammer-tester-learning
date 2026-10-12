@@ -22,7 +22,8 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(os.path.realpath(__file__)))
 SPD_COMMANDS = {
     # on ZCU104 first configure the I2C switch to select DDR4 SPD EEPROM,
     # which than has base address 0b001
-    "zcu104": (1, [(1, [0x74, 0x80])], False),
+    # (BIOS i2c_write takes <slaveaddr7bit> <addr> <addr_size>; 0x80 selects channel 7)
+    "zcu104": (1, [(1, [0x74, 0x80, 1])], False),
     "ddr4_datacenter_test_board": (0, None, False),
     "ddr5_tester": (0, None, True),
     "sodimm_ddr5_tester": (0, None, True),
@@ -79,11 +80,11 @@ def read_spd_console(console, spd_addr, init_commands=None, ddr5=False):
             spd_data += "\n" + modified_dump
     else:
         for write, args in init_commands or []:
-            cmd = ""
+            args = " ".join(hex(a) if isinstance(a, int) else a for a in args)
             if write == 1:
-                cmd = "i2c_write " + " ".join(args)
+                cmd = "i2c_write " + args
             else:
-                cmd = "i2c_read " + " ".join(args)
+                cmd = "i2c_read " + args
             console.sendline(cmd)
             console.expect(prompt)
         console.sendline(f"sdram_spd {spd_addr}")

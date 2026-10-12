@@ -156,6 +156,17 @@ int etherbone_process_packet(struct etherbone_memory_handlers *mem,
         // we don't convert with htonl, as we didn't convert it before with ntohl
         resp_packet->record_hdr.base_write_addr = req_packet->record_hdr.base_ret_addr;
         resp_len = sizeof(struct etherbone_packet) + rcount * sizeof(struct etherbone_record);
+    } else if(wcount > 0) {
+        // acknowledge write-only requests like LiteEth does: a record with
+        // rcount == wcount, base_ret_addr == 0 and all read addresses 0
+        memset(resp_packet, 0, sizeof(struct etherbone_packet) + wcount * sizeof(struct etherbone_record));
+        resp_packet->magic = htons(0x4e6f);
+        resp_packet->version = 1;
+        resp_packet->nr = 1;
+        resp_packet->addr_size = 4; // 32 bits
+        resp_packet->port_size = 4; // 32 bits
+        resp_packet->record_hdr.rcount = wcount;
+        resp_len = sizeof(struct etherbone_packet) + wcount * sizeof(struct etherbone_record);
     }
 
     return resp_len;
