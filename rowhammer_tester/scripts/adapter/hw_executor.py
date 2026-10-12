@@ -170,6 +170,44 @@ class HwExecutor:
                     self._pattern_data = 2 ** 32 - 1
                     inversion_divisor = 2
                     inversion_mask = 0b10
+                # Row layouts shown for the first four rows. inversion_divisor
+                # groups rows modulo its value; inversion_mask selects which
+                # rows in each group are inverted.
+                case 'striped_i':
+                    self._pattern_data = 2 ** 32 - 1
+                    inversion_divisor = 2
+                    inversion_mask = 0b01
+                #   0  00..0   1  11..1   2  00..0   3  11..1
+                case 'alternate_10':
+                    self._pattern_data = int('10' * (32 // 2), 2)
+                    inversion_divisor = 2
+                    inversion_mask = 0b10
+                #   0  1010..  1  0101..  2  1010..  3  0101..
+                case 'alternate_01':
+                    self._pattern_data = int('01' * (32 // 2), 2)
+                    inversion_divisor = 2
+                    inversion_mask = 0b10
+                #   0  0101..  1  1010..  2  0101..  3  1010..
+                case 'alternate_0011':
+                    self._pattern_data = int('0011' * (32 // 4), 2)
+                    inversion_divisor = 2
+                    inversion_mask = 0b10
+                #   0  0011..  1  1100..  2  0011..  3  1100..
+                case 'alternate_1100':
+                    self._pattern_data = int('1100' * (32 // 4), 2)
+                    inversion_divisor = 2
+                    inversion_mask = 0b10
+                #   0  1100..  1  0011..  2  1100..  3  0011..
+                case 'alternate_00001111':
+                    self._pattern_data = int('00001111' * (32 // 8), 2)
+                    inversion_divisor = 2
+                    inversion_mask = 0b10
+                #   0  00001111..  1  11110000..  2  00001111..  3  11110000..
+                case 'alternate_11110000':
+                    self._pattern_data = int('11110000' * (32 // 8), 2)
+                    inversion_divisor = 2
+                    inversion_mask = 0b10
+                #   0  11110000..  1  00001111..  2  11110000..  3  00001111..
                 case _:
                     raise ValueError('Illegal pattern provided')
 
